@@ -38,12 +38,16 @@ export interface ManeGRCh38 {
 export interface GeneEntry {
   gene_symbol:        string
   gene_id:            string
+  hgnc_id:            string
   entrez_gene_id:     string
   is_germline:        boolean
   is_clinical:        boolean
   is_oncokb:          boolean
+  mane_only:          boolean
   clinical_refseq:    string
   curated_note:       string
+  mskcc38_enst:       string
+  mskcc38_nm:         string
   mane_grch38:        ManeGRCh38
   mane_grch37_enst:   string
   best_match:         BestMatch
@@ -61,11 +65,12 @@ export interface CollectionEntry {
 }
 
 export interface Collections {
-  oncokb:          Record<string, CollectionEntry>
-  oncokb_isoform:  Record<string, CollectionEntry>
-  clinical:        Record<string, { grch37_nm: string }>
-  mane:            Record<string, CollectionEntry>
-  mskcc_isoform:   Record<string, CollectionEntry>
+  oncokb:                Record<string, CollectionEntry>
+  oncokb_isoform:        Record<string, CollectionEntry>
+  clinical:              Record<string, { grch37_nm: string; isoform_override?: string }>
+  mane:                  Record<string, CollectionEntry>
+  mskcc_isoform:         Record<string, CollectionEntry>
+  mskcc_grch38_isoform:  Record<string, CollectionEntry>
 }
 
 export interface Metadata {

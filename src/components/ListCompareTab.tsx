@@ -110,9 +110,9 @@ export default function ListCompareTab({ data }: Props) {
   }, [rows])
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden p-4">
+    <div className="flex flex-col flex-1 overflow-hidden">
       {/* Controls */}
-      <div className="flex flex-wrap gap-4 mb-4">
+      <div className="flex flex-wrap gap-4 items-end px-4 py-3 bg-white border-b">
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Assembly</label>
           <div className="flex border rounded overflow-hidden text-sm">
@@ -149,7 +149,7 @@ export default function ListCompareTab({ data }: Props) {
           </select>
         </div>
 
-        <div className="self-end">
+        <div>
           <button onClick={download} className="px-3 py-1.5 border rounded text-sm hover:bg-gray-50">
             Download TSV
           </button>
@@ -157,7 +157,7 @@ export default function ListCompareTab({ data }: Props) {
       </div>
 
       {/* Summary chips */}
-      <div className="flex gap-2 mb-3 flex-wrap">
+      <div className="flex gap-2 px-4 py-2 bg-white border-b flex-wrap">
         <button onClick={() => setStatusFilter('all')}
           className={`px-2 py-0.5 rounded text-xs border ${statusFilter === 'all' ? 'bg-gray-700 text-white' : 'hover:bg-gray-50'}`}>
           All ({rows.length})
@@ -171,7 +171,7 @@ export default function ListCompareTab({ data }: Props) {
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto border rounded">
+      <div className="flex-1 overflow-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50 sticky top-0">
             <tr>

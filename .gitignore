@@ -1,3 +1,8 @@
 node_modules/
 dist/
 .DS_Store
+
+# Large generated/reference data files
+public/data/gene_data.json
+files/input/
+files/output/

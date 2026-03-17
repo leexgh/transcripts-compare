@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
 import { HashRouter, Routes, Route, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useGeneData, useFilteredGenes } from './hooks/useGeneData'
-import { useCompareSelection } from './hooks/useCompareSelection'
 import FilterBar from './components/FilterBar'
 import TranscriptTable from './components/TranscriptTable'
 import DiffViewer from './components/DiffViewer'
-import ComparePanel from './components/ComparePanel'
 import ListCompareTab from './components/ListCompareTab'
+import TranscriptCompareTab from './components/TranscriptCompareTab'
+import ProteinComparePage from './components/ProteinComparePage'
 import type { FilterState } from './lib/types'
 
 const DEFAULT_FILTERS: FilterState = {
@@ -22,7 +22,6 @@ const DEFAULT_FILTERS: FilterState = {
 function MainView() {
   const { data, loading, error } = useGeneData()
   const [filters, setFilters]   = useState<FilterState>(DEFAULT_FILTERS)
-  const { selected, toggle, clear, isSelected } = useCompareSelection()
 
   const genes    = data?.genes ?? []
   const filtered = useFilteredGenes(genes, filters)
@@ -34,8 +33,7 @@ function MainView() {
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       <FilterBar filters={filters} onChange={setFilters} geneCount={filtered.length} total={genes.length} />
-      <TranscriptTable data={data} genes={filtered} onCompare={toggle} isSelected={isSelected} oncokbOnly={filters.oncokbOnly} />
-      <ComparePanel selected={selected} onClear={clear} />
+      <TranscriptTable data={data} genes={filtered} oncokbOnly={filters.oncokbOnly} />
     </div>
   )
 }
@@ -56,6 +54,14 @@ function ComparePage() {
   return <ListCompareTab data={data} />
 }
 
+function TranscriptComparePage() {
+  const { data, loading, error } = useGeneData()
+  if (loading) return <div className="flex-1 flex items-center justify-center text-gray-500">Loading data…</div>
+  if (error)   return <div className="flex-1 flex items-center justify-center text-red-500">Error: {error}</div>
+  if (!data)   return null
+  return <TranscriptCompareTab data={data} />
+}
+
 function Nav() {
   const loc = useLocation()
   const tabClass = (active: boolean) =>
@@ -64,10 +70,13 @@ function Nav() {
   return (
     <nav className="bg-white border-b px-4 flex items-center gap-0">
       <span className="font-bold text-gray-800 mr-6">Transcript Diff</span>
-      <NavLink to="/"        end className={({ isActive }) => tabClass(isActive || loc.pathname === '/')}>
+      <NavLink to="/table" className={({ isActive }) => tabClass(isActive)}>
         Transcript Table
       </NavLink>
-      <NavLink to="/compare"     className={({ isActive }) => tabClass(isActive)}>
+      <NavLink to="/" end className={({ isActive }) => tabClass(isActive)}>
+        Multiple Transcripts Compare
+      </NavLink>
+      <NavLink to="/compare" className={({ isActive }) => tabClass(isActive)}>
         List Compare
       </NavLink>
     </nav>
@@ -85,11 +94,8 @@ export default function App() {
               <DiffPage />
             </>
           } />
-          <Route path="/sequence" element={
-            <>
-              <Nav />
-              <div className="flex-1 p-4">Sequence view</div>
-            </>
+          <Route path="/compare-protein" element={
+            <ProteinComparePage />
           } />
           <Route path="/compare" element={
             <>
@@ -97,10 +103,16 @@ export default function App() {
               <ComparePage />
             </>
           } />
-          <Route path="*" element={
+          <Route path="/table" element={
             <>
               <Nav />
               <MainView />
+            </>
+          } />
+          <Route path="*" element={
+            <>
+              <Nav />
+              <TranscriptComparePage />
             </>
           } />
         </Routes>

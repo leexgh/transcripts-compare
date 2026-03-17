@@ -5,7 +5,7 @@ import {
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useNavigate } from 'react-router-dom'
-import type { GeneEntry, GeneData, Transcript, Similarities } from '../lib/types'
+import type { GeneEntry, GeneData, Similarities } from '../lib/types'
 import { computeSimilarity } from '../lib/similarity'
 import SimilarityBadge from './SimilarityBadge'
 import TranscriptDropdown from './TranscriptDropdown'
@@ -46,12 +46,10 @@ function getSeq(id: string, gene: GeneEntry): string {
 interface Props {
   data: GeneData
   genes: GeneEntry[]
-  onCompare: (t: Transcript) => void
-  isSelected: (id: string) => boolean
   oncokbOnly?: boolean
 }
 
-export default function TranscriptTable({ data, genes, onCompare, isSelected, oncokbOnly = false }: Props) {
+export default function TranscriptTable({ data, genes, oncokbOnly = false }: Props) {
   const navigate = useNavigate()
   const [sorting, setSorting] = useState<SortingState>([])
 
@@ -100,23 +98,6 @@ export default function TranscriptTable({ data, genes, onCompare, isSelected, on
 
   const columns = useMemo<ColumnDef<GeneEntry>[]>(() => [
     {
-      id: 'compare',
-      header: '',
-      size: 32,
-      cell: ({ row }) => {
-        const rs = getRowState(row.original)
-        const t37 = row.original.transcripts.find(t => t.id === rs.grch37_enst)
-        return (
-          <input
-            type="checkbox"
-            checked={isSelected(rs.grch37_enst)}
-            onChange={() => t37 && onCompare(t37)}
-            className="rounded"
-          />
-        )
-      },
-    },
-    {
       accessorKey: 'gene_symbol',
       header: 'Gene',
       size: 90,
@@ -131,17 +112,24 @@ export default function TranscriptTable({ data, genes, onCompare, isSelected, on
       ),
     },
     {
-      id: 'entrez_gene_id',
-      header: 'Entrez ID',
-      size: 80,
+      id: 'hgnc_entrez',
+      header: 'HGNC / Entrez',
+      size: 130,
       cell: ({ row }) => {
-        const id = row.original.entrez_gene_id
-        if (!id) return <span className="text-gray-300">—</span>
-        return (
-          <a href={`https://www.ncbi.nlm.nih.gov/gene/${id}`}
-             target="_blank" rel="noopener noreferrer"
-             className="text-blue-600 hover:underline text-xs">{id}</a>
-        )
+        const hgnc = row.original.hgnc_id
+        const entrez = row.original.entrez_gene_id
+        if (!hgnc && !entrez) return <span className="text-gray-300">—</span>
+        const hgncNum = hgnc ? hgnc.replace('HGNC:', '') : ''
+        const label = [hgncNum ? `HGNC:${hgncNum}` : '', entrez || ''].filter(Boolean).join('/')
+        const href = entrez
+          ? `https://www.ncbi.nlm.nih.gov/gene/${entrez}`
+          : hgnc
+            ? `https://www.genenames.org/data/gene-symbol-report/#!/hgnc_id/${hgnc}`
+            : ''
+        return href ? (
+          <a href={href} target="_blank" rel="noopener noreferrer"
+             className="text-blue-600 hover:underline text-xs">{label}</a>
+        ) : <span className="text-xs">{label}</span>
       },
     },
     {
@@ -310,7 +298,7 @@ export default function TranscriptTable({ data, genes, onCompare, isSelected, on
       size: 160,
       cell: ({ getValue }) => <span className="text-xs text-gray-500">{getValue() as string}</span>,
     },
-  ], [getRowState, updateRow, navigate, onCompare, isSelected])
+  ], [getRowState, updateRow, navigate])
 
   const table = useReactTable({
     data: genes,

@@ -29,7 +29,9 @@ export function useFilteredGenes(genes: GeneEntry[], filters: FilterState): Gene
         g.best_match.grch37_enst.toLowerCase().includes(q) ||
         g.best_match.grch38_enst.toLowerCase().includes(q) ||
         g.best_match.grch37_nm.toLowerCase().includes(q) ||
-        g.best_match.grch38_nm.toLowerCase().includes(q)
+        g.best_match.grch38_nm.toLowerCase().includes(q) ||
+        (g.hgnc_id && g.hgnc_id.toLowerCase().includes(q)) ||
+        (g.entrez_gene_id && g.entrez_gene_id.includes(q))
       )
     }
     if (filters.clinicalOnly)  result = result.filter(g => g.is_clinical)
