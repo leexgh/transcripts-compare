@@ -53,16 +53,33 @@ Each gene row shows its NCBI Entrez Gene ID (when available), linked to the NCBI
 
 ## Data Sources
 
+### Isoform / Annotation Files (tracked in `files/isoform/`)
+
 | Source | Description |
 |--------|-------------|
-| MSKCC isoform overrides | Curated GRCh37 transcripts (`isoform_overrides_at_mskcc_grch37.txt`) |
+| MSKCC isoform overrides (GRCh37) | Curated GRCh37 transcripts from [genome-nexus-importer](https://github.com/genome-nexus/genome-nexus-importer/blob/master/data/common_input/isoform_overrides_at_mskcc_grch37.txt) |
+| MSKCC isoform overrides (GRCh38) | Draft GRCh38 overrides |
 | Iv7 clinical overrides | DMP clinical panel RefSeq IDs (`Iv7_dmp_isoform_merged_overrides.txt`) |
-| OncoKB | GRCh38 reference transcripts (`oncokb.csv`) |
-| OncoKB isoform | GRCh37 + GRCh38 transcripts with Entrez IDs (`oncokb_isoform.tsv`) |
-| MANE | MANE Select / Plus Clinical transcripts (GRCh38 v1.2 + GRCh37 liftover) |
-| Ensembl | GRCh37 (v87) and GRCh38 (v111) protein FASTA + GTF |
-| RefSeq | GRCh37 + GRCh38 protein FASTA, gene2accession NP→NM mapping |
-| NCBI gene2accession | release221 accession→gene ID mapping for full NM lists |
+| OncoKB isoform | GRCh37 + GRCh38 canonical transcripts (provided via Slack; see [OncoKB API](https://www.oncokb.org/api/v1/utils/cancerGeneList.txt)) |
+| MANE GRCh38 | MANE Select / Plus Clinical — [v1.2](https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/release_1.2/MANE.GRCh38.v1.2.summary.txt.gz) (Ensembl 111) |
+| MANE GRCh37 | GRCh37 liftover from [Ensembl Tark](https://tark.ensembl.org/web/mane_GRCh37_list/), filtered to Ensembl 111 transcripts |
+| HGNC gene table | Gene_Table_v7, HGNC Oct 07 2025 via [cBioPortal datahub](https://github.com/cBioPortal/datahub-study-curation-tools/tree/master/gene-table-update/build-input-for-importer/gene-table-release-archives/Gene_Table_v7_HGNC_Oct_07_2025) |
+
+### Large Reference Files (not tracked — see `files/SOURCES.md`)
+
+| Source | Assembly | Description |
+|--------|----------|-------------|
+| RefSeq GRCh37 p13 GFF + FAA | GRCh37 | NM/NP ID mapping and protein sequences (latest GRCh37) |
+| RefSeq annotation release 105 GFF3 + protein.fa | GRCh37 | Older release — covers additional RefSeq IDs |
+| RefSeq annotation release 104 GFF3 + protein.fa | GRCh37 | Older release — covers additional RefSeq IDs |
+| RefSeq GRCh38 p14 GFF + FAA | GRCh38 | NM/NP ID mapping and protein sequences (2025-08) |
+| RefSeq GRCh38 p12 GFF + FAA | GRCh38 | Older release — only needed for `NM_203407.2` and `NM_001283009.1` |
+| Ensembl release 87 GTF | GRCh37 | Ensembl transcript IDs for GRCh37 coordinate space |
+| Ensembl release 111 GRCh37 pep FASTA | GRCh37 | Ensembl protein sequences |
+| Ensembl release 111 GTF | GRCh38 | Ensembl transcript IDs |
+| Ensembl release 111 GRCh38 pep FASTA | GRCh38 | Ensembl protein sequences |
+
+See [`files/SOURCES.md`](files/SOURCES.md) for full download URLs.
 
 ## Development
 
@@ -99,26 +116,36 @@ Output goes to `dist/`.
 
 ```
 src/
-  App.tsx                    # Router and main layout
+  App.tsx                       # Router and main layout
   components/
-    TranscriptTable.tsx      # Main gene table with virtual scrolling
-    FilterBar.tsx            # Search and filter controls
-    TranscriptDropdown.tsx   # Per-cell transcript selector
-    SimilarityBadge.tsx      # Color-coded similarity display
-    DiffViewer.tsx           # Protein sequence alignment viewer
-    ListCompareTab.tsx       # Collection comparison view
-    ComparePanel.tsx         # Multi-transcript comparison panel
-    SequenceModal.tsx        # Full sequence display
+    TranscriptTable.tsx          # Transcript Table tab
+    FilterBar.tsx                # Search and filter controls
+    TranscriptCompareTab.tsx     # Multiple Transcripts Compare tab
+    ProteinComparePage.tsx       # Pairwise protein alignment page
+    ListCompareTab.tsx           # List Compare tab
+    DiffViewer.tsx               # Sequence diff viewer
+    TranscriptDropdown.tsx       # Per-cell transcript selector
+    SimilarityBadge.tsx          # Color-coded similarity display
+    ComparePanel.tsx             # Multi-transcript comparison panel
+    SequenceModal.tsx            # Full sequence display
   hooks/
-    useGeneData.ts           # Data loading and filtering
-    useCompareSelection.ts   # Comparison selection state
+    useGeneData.ts               # Data loading and filtering
+    useCompareSelection.ts       # Comparison selection state
   lib/
-    types.ts                 # TypeScript interfaces
-    similarity.ts            # Client-side similarity computation
-    alignment.ts             # Sequence alignment for diff view
+    types.ts                     # TypeScript interfaces
+    similarity.ts                # Client-side similarity computation
+    alignment.ts                 # Needleman-Wunsch alignment
+pipeline/
+  build_gene_set.py             # Builds RefSeq/Ensembl TSVs from GFF + FASTA
+  build_data.py                 # Builds gene_data.json from all sources
+files/
+  isoform/                      # Small annotation files (tracked)
+  input/                        # Large reference files (not tracked, see SOURCES.md)
+  output/                       # Generated TSVs (not tracked)
+  SOURCES.md                    # Download URLs for large reference files
 public/
   data/
-    gene_data.json           # Pre-computed gene data (generated by pipeline)
+    gene_data.json              # Pre-computed gene data (generated by pipeline)
 ```
 
 ## Deployment
