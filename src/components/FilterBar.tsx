@@ -41,7 +41,6 @@ export default function FilterBar({ filters, onChange, geneCount, total }: Props
         { key: 'germlineOnly',  label: 'Germline only'  },
         { key: 'maneOnly',      label: 'MANE only'      },
         { key: 'mismatchOnly',  label: 'Mismatches only' },
-        { key: 'oncokbOnly',    label: 'OncoKB gene only' },
       ].map(({ key, label }) => (
         <label key={key} className="flex items-center gap-1.5 text-sm cursor-pointer">
           <input

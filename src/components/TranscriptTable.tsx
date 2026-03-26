@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
+import React, { useState, useCallback, useMemo } from 'react'
 import {
   useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel,
   flexRender, type ColumnDef, type SortingState,
@@ -35,6 +35,7 @@ function buildSims(
     grch37_enst_vs_grch38_enst: computeSimilarity(s37e, s38e),
     grch37_enst_vs_mane: computeSimilarity(s37e, mane),
     grch38_enst_vs_mane: computeSimilarity(s38e, mane),
+    grch37_nm_vs_mane: computeSimilarity(s37n, mane),
   }
 }
 
@@ -46,39 +47,14 @@ function getSeq(id: string, gene: GeneEntry): string {
 interface Props {
   data: GeneData
   genes: GeneEntry[]
-  oncokbOnly?: boolean
 }
 
-export default function TranscriptTable({ data, genes, oncokbOnly = false }: Props) {
+export default function TranscriptTable({ data, genes }: Props) {
   const navigate = useNavigate()
   const [sorting, setSorting] = useState<SortingState>([])
 
   // Per-row state (indexed by gene_symbol)
   const [rowStates, setRowStates] = useState<Record<string, RowState>>({})
-
-  // When oncokbOnly toggles, swap row states to oncokb defaults or back to pipeline defaults
-  const prevOncokbOnly = useRef(oncokbOnly)
-  useEffect(() => {
-    if (prevOncokbOnly.current === oncokbOnly) return
-    prevOncokbOnly.current = oncokbOnly
-    if (oncokbOnly) {
-      // Swap to oncokb_best_match for genes that have it
-      const newStates: Record<string, RowState> = {}
-      for (const gene of genes) {
-        if (gene.oncokb_best_match) {
-          const bm = gene.oncokb_best_match
-          newStates[gene.gene_symbol] = {
-            ...bm,
-            similarities: buildSims(gene, bm, getSeq),
-          }
-        }
-      }
-      setRowStates(newStates)
-    } else {
-      // Reset to pipeline defaults
-      setRowStates({})
-    }
-  }, [oncokbOnly, genes])
 
   const getRowState = useCallback((gene: GeneEntry): RowState => {
     return rowStates[gene.gene_symbol] ?? {
@@ -105,8 +81,8 @@ export default function TranscriptTable({ data, genes, oncokbOnly = false }: Pro
         <div>
           <span className="font-semibold">{getValue() as string}</span>
           <div className="flex gap-1 mt-0.5">
-            {row.original.is_germline && <span className="px-1 py-0.5 bg-purple-100 text-purple-700 text-[10px] rounded">GL</span>}
-            {row.original.is_clinical && <span className="px-1 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded">CL</span>}
+            {row.original.is_germline && <span className="px-1 py-0.5 bg-purple-100 text-purple-700 text-[10px] rounded">Germline</span>}
+            {row.original.is_clinical && <span className="px-1 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded">Clinical</span>}
           </div>
         </div>
       ),
@@ -134,7 +110,7 @@ export default function TranscriptTable({ data, genes, oncokbOnly = false }: Pro
     },
     {
       id: 'grch37_enst',
-      header: 'GRCh37 ENST',
+      header: '37ENST',
       size: 180,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
@@ -150,23 +126,32 @@ export default function TranscriptTable({ data, genes, oncokbOnly = false }: Pro
     },
     {
       id: 'grch38_enst',
-      header: 'GRCh38 ENST',
+      header: '38ENST',
       size: 180,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
+        const mane = row.original.mane_grch38
+        const maneEnstMatch = mane.enst && mane.enst.split('.')[0] === rs.grch38_enst.split('.')[0]
         return (
-          <TranscriptDropdown
-            current={rs.grch38_enst}
-            transcripts={row.original.transcripts}
-            type="ensembl" assembly="GRCh38"
-            onChange={t => updateRow(row.original, { grch38_enst: t.id })}
-          />
+          <div>
+            <TranscriptDropdown
+              current={rs.grch38_enst}
+              transcripts={row.original.transcripts}
+              type="ensembl" assembly="GRCh38"
+              onChange={t => updateRow(row.original, { grch38_enst: t.id })}
+            />
+            {maneEnstMatch && (
+              <span className="px-1 py-0.5 rounded text-[10px] bg-pink-100 text-pink-700">
+                MANE
+              </span>
+            )}
+          </div>
         )
       },
     },
     {
       id: 'grch37_nm',
-      header: 'GRCh37 NM',
+      header: '37RefSeq',
       size: 170,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
@@ -182,45 +167,32 @@ export default function TranscriptTable({ data, genes, oncokbOnly = false }: Pro
     },
     {
       id: 'grch38_nm',
-      header: 'GRCh38 NM',
+      header: '38RefSeq',
       size: 170,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
-        return (
-          <TranscriptDropdown
-            current={rs.grch38_nm}
-            transcripts={row.original.transcripts}
-            type="refseq" assembly="GRCh38"
-            onChange={t => updateRow(row.original, { grch38_nm: t.id })}
-          />
-        )
-      },
-    },
-    {
-      id: 'is_mane',
-      header: 'is_MANE',
-      size: 140,
-      cell: ({ row }) => {
-        const rs = getRowState(row.original)
         const mane = row.original.mane_grch38
-        if (!mane.enst) return <span className="text-gray-300">—</span>
-        // Only show badge if currently selected GRCh38 ENST matches the MANE ENST
-        const maneBase = mane.enst.split('.')[0]
-        const selectedBase = rs.grch38_enst.split('.')[0]
-        if (maneBase !== selectedBase) return <span className="text-gray-300">—</span>
-        const isSelect = mane.status === 'MANE Select'
+        const maneNmMatch = mane.nm && mane.nm.split('.')[0] === rs.grch38_nm.split('.')[0]
         return (
-          <span className={`px-1.5 py-0.5 rounded text-[11px] ${isSelect ? 'bg-green-100 text-green-800' : 'bg-teal-100 text-teal-800'}`}>
-            {isSelect ? 'Select' : 'Plus Clinical'}
-          </span>
+          <div>
+            <TranscriptDropdown
+              current={rs.grch38_nm}
+              transcripts={row.original.transcripts}
+              type="refseq" assembly="GRCh38"
+              onChange={t => updateRow(row.original, { grch38_nm: t.id })}
+            />
+            {maneNmMatch && (
+              <span className="px-1 py-0.5 rounded text-[10px] bg-pink-100 text-pink-700">MANE</span>
+            )}
+          </div>
         )
       },
     },
-    // 5 similarity columns
+    // similarity columns
     {
       id: 'sim_37e_37r',
-      header: '37E/37R',
-      size: 100,
+      header: '37ENST/37RefSeq',
+      size: 130,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
         return (
@@ -234,8 +206,8 @@ export default function TranscriptTable({ data, genes, oncokbOnly = false }: Pro
     },
     {
       id: 'sim_38e_38r',
-      header: '38E/38R',
-      size: 100,
+      header: '38ENST/38RefSeq',
+      size: 130,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
         return (
@@ -249,8 +221,8 @@ export default function TranscriptTable({ data, genes, oncokbOnly = false }: Pro
     },
     {
       id: 'sim_37e_38e',
-      header: '37E/38E',
-      size: 100,
+      header: '37ENST/38ENST',
+      size: 120,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
         return (
@@ -264,8 +236,8 @@ export default function TranscriptTable({ data, genes, oncokbOnly = false }: Pro
     },
     {
       id: 'sim_37e_mane',
-      header: '37E/MANE',
-      size: 105,
+      header: '37ENST/MANE',
+      size: 115,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
         return (
@@ -279,8 +251,8 @@ export default function TranscriptTable({ data, genes, oncokbOnly = false }: Pro
     },
     {
       id: 'sim_38e_mane',
-      header: '38E/MANE',
-      size: 105,
+      header: '38ENST/MANE',
+      size: 115,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
         return (
@@ -288,6 +260,27 @@ export default function TranscriptTable({ data, genes, oncokbOnly = false }: Pro
             sim={rs.similarities.grch38_enst_vs_mane}
             label="GRCh38 ENST vs MANE GRCh38"
             onClick={() => navigate(`/diff?a=${encodeURIComponent(rs.grch38_enst)}&b=${encodeURIComponent(row.original.mane_grch38.enst)}`)}
+          />
+        )
+      },
+    },
+    {
+      id: 'sim_37r_mane',
+      header: '37RefSeq/MANE',
+      size: 125,
+      cell: ({ row }) => {
+        const rs = getRowState(row.original)
+        const maneEnst = row.original.mane_grch38.enst
+        if (!maneEnst) return <span className="text-gray-300">—</span>
+        const sim = rs.similarities.grch37_nm_vs_mane ?? computeSimilarity(
+          getSeq(rs.grch37_nm, row.original),
+          getSeq(maneEnst, row.original),
+        )
+        return (
+          <SimilarityBadge
+            sim={sim}
+            label="GRCh37 RefSeq vs MANE GRCh38"
+            onClick={() => navigate(`/diff?a=${encodeURIComponent(rs.grch37_nm)}&b=${encodeURIComponent(maneEnst)}`)}
           />
         )
       },

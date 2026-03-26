@@ -9,6 +9,7 @@ export interface Similarities {
   grch37_enst_vs_grch38_enst:   SimilarityResult
   grch37_enst_vs_mane:          SimilarityResult
   grch38_enst_vs_mane:          SimilarityResult
+  grch37_nm_vs_mane?:           SimilarityResult
 }
 
 export interface Transcript {
@@ -95,5 +96,4 @@ export interface FilterState {
   germlineOnly:  boolean
   maneOnly:      boolean
   mismatchOnly:  boolean
-  oncokbOnly:    boolean
 }

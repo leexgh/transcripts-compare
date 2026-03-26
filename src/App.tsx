@@ -16,7 +16,6 @@ const DEFAULT_FILTERS: FilterState = {
   germlineOnly:  false,
   maneOnly:      false,
   mismatchOnly:  false,
-  oncokbOnly:    false,
 }
 
 function MainView() {
@@ -33,7 +32,7 @@ function MainView() {
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       <FilterBar filters={filters} onChange={setFilters} geneCount={filtered.length} total={genes.length} />
-      <TranscriptTable data={data} genes={filtered} oncokbOnly={filters.oncokbOnly} />
+      <TranscriptTable data={data} genes={filtered} />
     </div>
   )
 }

@@ -37,7 +37,6 @@ export function useFilteredGenes(genes: GeneEntry[], filters: FilterState): Gene
     if (filters.clinicalOnly)  result = result.filter(g => g.is_clinical)
     if (filters.germlineOnly)  result = result.filter(g => g.is_germline)
     if (filters.maneOnly)      result = result.filter(g => !!g.mane_grch38.enst)
-    if (filters.oncokbOnly)    result = result.filter(g => g.is_oncokb)
     if (filters.mismatchOnly) {
       result = result.filter(g => {
         const s = g.similarities
