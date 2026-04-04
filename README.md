@@ -14,16 +14,16 @@ The main view shows a filterable, sortable table of genes with their selected tr
 |--------|-------------|
 | GRCh37 ENST | Ensembl transcript (GRCh37 assembly) |
 | GRCh38 ENST | Ensembl transcript (GRCh38 assembly) |
-| GRCh37 NM | RefSeq transcript (GRCh37 assembly) |
-| GRCh38 NM | RefSeq transcript (GRCh38 assembly) |
+| GRCh37 RefSeq | RefSeq transcript (GRCh37 assembly) |
+| GRCh38 RefSeq | RefSeq transcript (GRCh38 assembly) |
 
 Each transcript column has a **dropdown** — click to switch between all available transcripts for that gene. When you change a selection, similarity scores update in real time.
 
 **Similarity columns** show pairwise protein sequence identity between selected transcripts (e.g., 37E/38E compares GRCh37 Ensembl vs GRCh38 Ensembl). Click any similarity badge to open the **diff viewer**.
 
 **Badges:**
-- `GL` = germline panel gene
-- `CL` = clinical panel gene (Iv7)
+- `Germline` = germline panel gene
+- `Clinical` = clinical panel gene (Iv7)
 - `Select` / `Plus Clinical` = MANE status
 
 ### Filters

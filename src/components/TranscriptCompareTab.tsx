@@ -20,19 +20,19 @@ interface ColDef {
 }
 
 const ALL_COLS: ColDef[] = [
-  { key: 'mskcc37_enst',    label: 'MSKCC37 ENST',   assembly: 'GRCh37' },
-  { key: 'mskcc37_nm',      label: 'MSKCC37 NM',     assembly: 'GRCh37' },
-  { key: 'clinical_refseq', label: 'Clinical RefSeq', assembly: 'GRCh37' },
-  { key: 'oncokb37_enst',   label: 'OncoKB37 ENST',  assembly: 'GRCh37' },
-  { key: 'oncokb37_nm',     label: 'OncoKB37 NM',    assembly: 'GRCh37' },
-  { key: 'mane37_enst',     label: 'MANE37 ENST',    assembly: 'GRCh37' },
-  { key: 'mane37_nm',       label: 'MANE37 NM',      assembly: 'GRCh37', optional: true },
-  { key: 'mskcc38_enst',    label: 'MSKCC38 ENST',   assembly: 'GRCh38' },
-  { key: 'mskcc38_nm',      label: 'MSKCC38 NM',     assembly: 'GRCh38' },
-  { key: 'oncokb38_enst',   label: 'OncoKB38 ENST',  assembly: 'GRCh38' },
-  { key: 'oncokb38_nm',     label: 'OncoKB38 NM',    assembly: 'GRCh38' },
-  { key: 'mane38_enst',     label: 'MANE38 ENST',    assembly: 'GRCh38' },
-  { key: 'mane38_nm',       label: 'MANE38 NM',      assembly: 'GRCh38', optional: true },
+  { key: 'mskcc37_enst',    label: 'MSKCC37 ENST',      assembly: 'GRCh37' },
+  { key: 'mskcc37_nm',      label: 'MSKCC37 RefSeq',    assembly: 'GRCh37' },
+  { key: 'clinical_refseq', label: 'Clinical RefSeq',   assembly: 'GRCh37' },
+  { key: 'oncokb37_enst',   label: 'OncoKB37 ENST',     assembly: 'GRCh37' },
+  { key: 'oncokb37_nm',     label: 'OncoKB37 RefSeq',   assembly: 'GRCh37' },
+  { key: 'mane37_enst',     label: 'MANE37 ENST',       assembly: 'GRCh37' },
+  { key: 'mane37_nm',       label: 'MANE37 RefSeq',     assembly: 'GRCh37', optional: true },
+  { key: 'mskcc38_enst',    label: 'MSKCC38 ENST',      assembly: 'GRCh38' },
+  { key: 'mskcc38_nm',      label: 'MSKCC38 RefSeq',    assembly: 'GRCh38' },
+  { key: 'oncokb38_enst',   label: 'OncoKB38 ENST',     assembly: 'GRCh38' },
+  { key: 'oncokb38_nm',     label: 'OncoKB38 RefSeq',   assembly: 'GRCh38' },
+  { key: 'mane38_enst',     label: 'MANE38 ENST',       assembly: 'GRCh38' },
+  { key: 'mane38_nm',       label: 'MANE38 RefSeq',     assembly: 'GRCh38', optional: true },
 ]
 
 const DEFAULT_COLS: Record<AssemblyFilter, ColumnKey[]> = {
@@ -328,7 +328,8 @@ export default function TranscriptCompareTab({ data }: Props) {
                   <td className="px-3 py-2 align-top border-r">
                     <div className="font-semibold text-sm">{gene.gene_symbol}</div>
                     <div className="flex gap-1 mt-0.5">
-                      {gene.is_germline && <span className="px-1 py-0.5 bg-purple-100 text-purple-700 text-[10px] rounded">GL</span>}
+                      {gene.is_germline && <span className="px-1 py-0.5 bg-purple-100 text-purple-700 text-[10px] rounded">Germline</span>}
+                      {gene.is_clinical  && <span className="px-1 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded">Clinical</span>}
                       {gene.mane_only    && <span className="px-1 py-0.5 bg-gray-100 text-gray-500 text-[10px] rounded">MANE</span>}
                     </div>
                   </td>
