@@ -40,6 +40,7 @@ def foutput(*parts):  return os.path.join(FILES, "output", *parts)
 GENE_SYMBOL_UPDATES = {
     "EIF2C1": "AGO1",
     "FTSJD1": "CMTR2",
+    "NUT":    "NUTM1",
     "PAK7":   "PAK5",
     "WHSC1":  "NSD2",
     "STK19":  "WHR1",

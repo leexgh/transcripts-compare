@@ -1,10 +1,9 @@
-import React, { useState, useCallback, useMemo } from 'react'
+import React, { useState, useCallback, useMemo, useRef } from 'react'
 import {
   useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel,
-  flexRender, type ColumnDef, type SortingState,
+  flexRender, type ColumnDef, type SortingState, type SortingFn,
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useNavigate } from 'react-router-dom'
 import type { GeneEntry, GeneData, Similarities } from '../lib/types'
 import { computeSimilarity } from '../lib/similarity'
 import SimilarityBadge from './SimilarityBadge'
@@ -44,14 +43,42 @@ function getSeq(id: string, gene: GeneEntry): string {
   return t?.sequence ?? ''
 }
 
+// Custom sorting function: NA (-1) always sorts last regardless of direction.
+// TanStack Table inverts the comparator result when sorting descending, so we
+// read the current sort direction (via ref) and return a pre-inverted value for NA rows.
+function makeSimSortingFn(sortingRef: React.RefObject<SortingState>): SortingFn<GeneEntry> {
+  return (rowA, rowB, columnId) => {
+    const a = rowA.getValue<number>(columnId)
+    const b = rowB.getValue<number>(columnId)
+    const aIsNA = a === -1
+    const bIsNA = b === -1
+    if (aIsNA && bIsNA) return 0
+    if (aIsNA || bIsNA) {
+      const desc = (sortingRef.current ?? []).find(s => s.id === columnId)?.desc ?? false
+      if (aIsNA) return desc ? -1 : 1   // post-inversion: always positive → a last
+      return desc ? 1 : -1               // post-inversion: always negative → b last
+    }
+    return a - b
+  }
+}
+
 interface Props {
   data: GeneData
   genes: GeneEntry[]
 }
 
+function openDiff(a: string, b: string) {
+  window.open(
+    `${window.location.href.split('#')[0]}#/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
+    '_blank',
+  )
+}
+
 export default function TranscriptTable({ data, genes }: Props) {
-  const navigate = useNavigate()
   const [sorting, setSorting] = useState<SortingState>([])
+  const sortingRef = useRef<SortingState>(sorting)
+  sortingRef.current = sorting
+  const simSortingFn = useMemo(() => makeSimSortingFn(sortingRef), [])
 
   // Per-row state (indexed by gene_symbol)
   const [rowStates, setRowStates] = useState<Record<string, RowState>>({})
@@ -193,13 +220,15 @@ export default function TranscriptTable({ data, genes }: Props) {
       id: 'sim_37e_37r',
       header: '37ENST/37RefSeq',
       size: 130,
+      accessorFn: row => getRowState(row).similarities.grch37_enst_vs_grch37_refseq?.pct ?? -1,
+      sortingFn: simSortingFn,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
         return (
           <SimilarityBadge
             sim={rs.similarities.grch37_enst_vs_grch37_refseq}
             label="GRCh37 ENST vs GRCh37 RefSeq"
-            onClick={() => navigate(`/diff?a=${encodeURIComponent(rs.grch37_enst)}&b=${encodeURIComponent(rs.grch37_nm)}`)}
+            onClick={() => openDiff(rs.grch37_enst, rs.grch37_nm)}
           />
         )
       },
@@ -208,13 +237,15 @@ export default function TranscriptTable({ data, genes }: Props) {
       id: 'sim_38e_38r',
       header: '38ENST/38RefSeq',
       size: 130,
+      accessorFn: row => getRowState(row).similarities.grch38_enst_vs_grch38_refseq?.pct ?? -1,
+      sortingFn: simSortingFn,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
         return (
           <SimilarityBadge
             sim={rs.similarities.grch38_enst_vs_grch38_refseq}
             label="GRCh38 ENST vs GRCh38 RefSeq"
-            onClick={() => navigate(`/diff?a=${encodeURIComponent(rs.grch38_enst)}&b=${encodeURIComponent(rs.grch38_nm)}`)}
+            onClick={() => openDiff(rs.grch38_enst, rs.grch38_nm)}
           />
         )
       },
@@ -223,13 +254,15 @@ export default function TranscriptTable({ data, genes }: Props) {
       id: 'sim_37e_38e',
       header: '37ENST/38ENST',
       size: 120,
+      accessorFn: row => getRowState(row).similarities.grch37_enst_vs_grch38_enst?.pct ?? -1,
+      sortingFn: simSortingFn,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
         return (
           <SimilarityBadge
             sim={rs.similarities.grch37_enst_vs_grch38_enst}
             label="GRCh37 ENST vs GRCh38 ENST"
-            onClick={() => navigate(`/diff?a=${encodeURIComponent(rs.grch37_enst)}&b=${encodeURIComponent(rs.grch38_enst)}`)}
+            onClick={() => openDiff(rs.grch37_enst, rs.grch38_enst)}
           />
         )
       },
@@ -238,13 +271,15 @@ export default function TranscriptTable({ data, genes }: Props) {
       id: 'sim_37e_mane',
       header: '37ENST/MANE',
       size: 115,
+      accessorFn: row => getRowState(row).similarities.grch37_enst_vs_mane?.pct ?? -1,
+      sortingFn: simSortingFn,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
         return (
           <SimilarityBadge
             sim={rs.similarities.grch37_enst_vs_mane}
             label="GRCh37 ENST vs MANE GRCh38"
-            onClick={() => navigate(`/diff?a=${encodeURIComponent(rs.grch37_enst)}&b=${encodeURIComponent(row.original.mane_grch38.enst)}`)}
+            onClick={() => openDiff(rs.grch37_enst, row.original.mane_grch38.enst)}
           />
         )
       },
@@ -253,13 +288,15 @@ export default function TranscriptTable({ data, genes }: Props) {
       id: 'sim_38e_mane',
       header: '38ENST/MANE',
       size: 115,
+      accessorFn: row => getRowState(row).similarities.grch38_enst_vs_mane?.pct ?? -1,
+      sortingFn: simSortingFn,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
         return (
           <SimilarityBadge
             sim={rs.similarities.grch38_enst_vs_mane}
             label="GRCh38 ENST vs MANE GRCh38"
-            onClick={() => navigate(`/diff?a=${encodeURIComponent(rs.grch38_enst)}&b=${encodeURIComponent(row.original.mane_grch38.enst)}`)}
+            onClick={() => openDiff(rs.grch38_enst, row.original.mane_grch38.enst)}
           />
         )
       },
@@ -268,6 +305,11 @@ export default function TranscriptTable({ data, genes }: Props) {
       id: 'sim_37r_mane',
       header: '37RefSeq/MANE',
       size: 125,
+      accessorFn: row => {
+        const rs = getRowState(row)
+        return rs.similarities.grch37_nm_vs_mane?.pct ?? -1
+      },
+      sortingFn: simSortingFn,
       cell: ({ row }) => {
         const rs = getRowState(row.original)
         const maneEnst = row.original.mane_grch38.enst
@@ -280,7 +322,7 @@ export default function TranscriptTable({ data, genes }: Props) {
           <SimilarityBadge
             sim={sim}
             label="GRCh37 RefSeq vs MANE GRCh38"
-            onClick={() => navigate(`/diff?a=${encodeURIComponent(rs.grch37_nm)}&b=${encodeURIComponent(maneEnst)}`)}
+            onClick={() => openDiff(rs.grch37_nm, maneEnst)}
           />
         )
       },
@@ -291,7 +333,7 @@ export default function TranscriptTable({ data, genes }: Props) {
       size: 160,
       cell: ({ getValue }) => <span className="text-xs text-gray-500">{getValue() as string}</span>,
     },
-  ], [getRowState, updateRow, navigate])
+  ], [getRowState, updateRow])
 
   const table = useReactTable({
     data: genes,

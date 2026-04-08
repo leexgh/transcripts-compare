@@ -17,6 +17,7 @@ FILES = os.path.join(ROOT, "files")
 UPDATES = {
     "WHSC1":  "NSD2",
     "FTSJD1": "CMTR2",
+    "NUT":    "NUTM1",
     "STK19":  "WHR1",
     "EIF2C1": "AGO1",
     "PAK7":   "PAK5",

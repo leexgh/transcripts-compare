@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react'
 import type { GeneEntry, GeneData } from '../lib/types'
+import { computeSimilarity } from '../lib/similarity'
 
 // ---------------------------------------------------------------------------
 // Column definitions
@@ -85,6 +86,65 @@ function isAllIdenticalForCols(gene: GeneEntry, data: GeneData, cols: ColumnKey[
   const seqs = ids.map(id => getSeqFuzzy(id, gene)).filter(Boolean)
   if (seqs.length < 2) return false
   return seqs.every(s => s === seqs[0])
+}
+
+// ---------------------------------------------------------------------------
+// CSV export
+// ---------------------------------------------------------------------------
+const BASE_URL = 'https://leexgh.github.io/transcripts-compare/'
+
+function exportCSV(visibleGenes: GeneEntry[], data: GeneData, visibleCols: ColumnKey[]) {
+  const colDefs = visibleCols.map(key => ALL_COLS.find(c => c.key === key)!)
+
+  // All pairwise similarity column pairs
+  const pairs: [number, number][] = []
+  for (let i = 0; i < visibleCols.length; i++)
+    for (let j = i + 1; j < visibleCols.length; j++)
+      pairs.push([i, j])
+
+  const headers = [
+    'Gene', 'Clinical', 'Germline',
+    ...colDefs.map(c => c.label),
+    ...pairs.map(([i, j]) => `${colDefs[i].label} vs ${colDefs[j].label}`),
+    'Link',
+  ]
+
+  const csvRows = visibleGenes.map(gene => {
+    const vals  = visibleCols.map(key => getColValue(gene, data, key))
+    const seqs  = vals.map(id => getSeqFuzzy(id, gene))
+
+    const simCells = pairs.map(([i, j]) => {
+      if (!vals[i] || !vals[j]) return ''
+      const sim = computeSimilarity(seqs[i], seqs[j])
+      return sim.pct === null ? 'N/A' : `${sim.pct.toFixed(sim.pct === 100 ? 0 : 2)}%`
+    })
+
+    const validIdxs  = vals.map((v, i) => v ? i : -1).filter(i => i >= 0)
+    const validIds   = validIdxs.map(i => vals[i])
+    const validLabels = validIdxs.map(i => colDefs[i].label)
+    const link = validIds.length >= 2
+      ? `${BASE_URL}#/compare-protein?gene=${encodeURIComponent(gene.gene_symbol)}&txs=${encodeURIComponent(validIds.join(','))}&labels=${encodeURIComponent(validLabels.join(','))}`
+      : ''
+
+    return [
+      gene.gene_symbol,
+      gene.is_clinical ? 'Yes' : 'No',
+      gene.is_germline ? 'Yes' : 'No',
+      ...vals,
+      ...simCells,
+      link,
+    ]
+  })
+
+  const escape = (s: string) => `"${String(s ?? '').replace(/"/g, '""')}"`
+  const csv = [headers, ...csvRows].map(r => r.map(escape).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url
+  a.download = 'transcript_compare.csv'
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +329,14 @@ export default function TranscriptCompareTab({ data }: Props) {
           {visibleGenes.length} gene{visibleGenes.length !== 1 ? 's' : ''}
           {!q && remainingMane > 0 && ` (${remainingMane} MANE-only hidden)`}
         </span>
+
+        <button
+          onClick={() => exportCSV(visibleGenes, data, visibleCols)}
+          className="px-3 py-1 text-sm rounded border bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+          title="Download current table as CSV"
+        >
+          ↓ Export CSV
+        </button>
       </div>
 
       {/* Table */}

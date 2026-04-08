@@ -46,6 +46,7 @@ def outp(*parts):
 GENE_SYMBOL_UPDATES = {
     "EIF2C1": "AGO1",
     "FTSJD1": "CMTR2",
+    "NUT":    "NUTM1",
     "PAK7":   "PAK5",
     "WHSC1":  "NSD2",
     "STK19":  "WHR1",
@@ -325,11 +326,13 @@ def parse_ensembl_gtf(gtf_path: str):
     Returns:
         ensg_to_transcripts: {ensg_id -> set of (enst_versioned, ensp_versioned)}
         ensg_to_symbol: {ensg_id -> gene_name}
+        symbol_to_ensg: {gene_name -> ensg_id}  (first ENSG seen per symbol)
     """
     RE_ATTR = re.compile(r'(\w+) "([^"]+)"')
 
     ensg_to_transcripts: Dict[str, Set[Tuple[str, str]]] = defaultdict(set)
     ensg_to_symbol: Dict[str, str] = {}
+    symbol_to_ensg: Dict[str, str] = {}
 
     with open(gtf_path, encoding="utf-8") as f:
         for line in f:
@@ -361,28 +364,58 @@ def parse_ensembl_gtf(gtf_path: str):
             ensg_to_transcripts[gene_id].add((enst_v, ensp_v))
             if gene_name:
                 ensg_to_symbol[gene_id] = gene_name
+                if gene_name not in symbol_to_ensg:
+                    symbol_to_ensg[gene_name] = gene_id
 
-    return ensg_to_transcripts, ensg_to_symbol
+    return ensg_to_transcripts, ensg_to_symbol, symbol_to_ensg
 
 
-def build_ensembl_table(gene_set, gtf_path: str, fasta_path: str, assembly: str):
+def build_ensembl_table(gene_set, gtf_path: str, fasta_path: str, assembly: str,
+                        sym_to_prev: Dict[str, list] = None):
     """
     Returns list of row dicts for the Ensembl transcript table.
+
+    sym_to_prev: {current_symbol -> [prev_symbol, ...]} from HGNC.  When a
+    gene's HGNC ENSG is absent from the GTF (common for genes renamed between
+    GRCh37 and GRCh38), the function falls back to looking up the gene by its
+    current symbol and then by each previous symbol in the GTF's gene-name
+    index.  This recovers transcripts for genes like CCNQ (was FAM58A),
+    H3C1 (was HIST1H3A), IKBKE (same name, different ENSG), etc.
     """
     print(f"  Parsing Ensembl GTF: {os.path.basename(gtf_path)} ...")
-    ensg_to_transcripts, ensg_to_symbol = parse_ensembl_gtf(gtf_path)
+    ensg_to_transcripts, ensg_to_symbol, symbol_to_ensg = parse_ensembl_gtf(gtf_path)
 
     print(f"  Parsing Ensembl PEP FASTA: {os.path.basename(fasta_path)} ...")
     ensp_to_seq = parse_ensembl_pep(fasta_path)
 
     rows = []
     no_seq_count = 0
+    fallback_count = 0
 
     for gene in gene_set:
         ensg = gene["ensembl_gene_id"]
         if not ensg:
             continue
         transcripts = ensg_to_transcripts.get(ensg, set())
+
+        # Fallback: HGNC ENSG not present in this GTF (gene renamed or ENSG
+        # reassigned between GRCh37 and GRCh38).  Try the GTF's own symbol
+        # index using the current symbol and then each previous HGNC symbol.
+        if not transcripts and sym_to_prev is not None:
+            sym = gene["gene_symbol"]
+            candidates = [sym] + list(sym_to_prev.get(sym, []))
+            for candidate in candidates:
+                fallback_ensg = symbol_to_ensg.get(candidate)
+                if fallback_ensg and fallback_ensg != ensg:
+                    transcripts = ensg_to_transcripts.get(fallback_ensg, set())
+                    if transcripts:
+                        gtf_name = ensg_to_symbol.get(fallback_ensg, candidate)
+                        print(f"  ℹ️  {sym}: HGNC ENSG {ensg} not in GTF; "
+                              f"resolved via GTF symbol '{gtf_name}' → {fallback_ensg} "
+                              f"({len(transcripts)} transcript(s))")
+                        fallback_count += 1
+                        break
+
         for (enst_v, ensp_v) in sorted(transcripts):
             seq = ensp_to_seq.get(ensp_v, "")
             if not seq:
@@ -397,6 +430,8 @@ def build_ensembl_table(gene_set, gtf_path: str, fasta_path: str, assembly: str)
                 "protein_sequence":     seq,
             })
 
+    if fallback_count:
+        print(f"  ℹ️  {fallback_count} gene(s) resolved via GTF symbol fallback")
     if no_seq_count:
         print(f"  ⚠️  {no_seq_count} transcripts had no protein sequence in FASTA (may be non-coding)")
 
@@ -674,12 +709,19 @@ def main():
     print(f"  Genes with entrez_id: {with_entrez}/{len(gene_set)}")
     print(f"  Genes with ensembl_gene_id: {with_ensg}/{len(gene_set)}")
 
+    # Build {current_sym -> [prev_sym, ...]} for the GTF fallback in build_ensembl_table
+    sym_to_prev: Dict[str, list] = defaultdict(list)
+    for prev_sym, current_syms in prev_to_symbols.items():
+        for cur in current_syms:
+            sym_to_prev[cur].append(prev_sym)
+
     print("\nStep 4: Building Ensembl GRCh37 transcript table ...")
     rows37 = build_ensembl_table(
         gene_set,
         finput("Homo_sapiens.GRCh37.87.gtf"),
         finput("Homo_sapiens.GRCh37.pep.all.fa"),
         "GRCh37",
+        sym_to_prev=sym_to_prev,
     )
     write_ensembl_table(rows37, outp("ensembl_transcripts_grch37.tsv"))
 
@@ -689,6 +731,7 @@ def main():
         finput("Homo_sapiens.GRCh38.111.gtf"),
         finput("Homo_sapiens.GRCh38.pep.all.fa"),
         "GRCh38",
+        sym_to_prev=sym_to_prev,
     )
     write_ensembl_table(rows38, outp("ensembl_transcripts_grch38.tsv"))
 
