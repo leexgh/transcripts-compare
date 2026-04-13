@@ -21,31 +21,24 @@ export function computeSimilarity(seq1: string, seq2: string): SimilarityResult 
     return { pct, diff_count: mismatches }
   }
 
-  // For different-length sequences: LCS-based (mirrors difflib ratio)
+  // For different-length sequences: LCS-based (mirrors difflib ratio).
   const lcsLen = lcs(seq1, seq2)
   const pct = Math.round((2 * lcsLen / (seq1.length + seq2.length)) * 10000) / 100
-  // diff_count = characters not in LCS (indels + subs)
   const diff_count = seq1.length + seq2.length - 2 * lcsLen
   return { pct, diff_count }
 }
 
-/** Length of longest common subsequence (capped at 1000 chars for performance) */
+/** Length of longest common subsequence via space-optimised DP. */
 function lcs(a: string, b: string): number {
-  const maxLen = 1000
-  const s1 = a.length > maxLen ? a.slice(0, maxLen) : a
-  const s2 = b.length > maxLen ? b.slice(0, maxLen) : b
-  const m = s1.length, n = s2.length
-  // Space-optimised DP (two rows)
+  const m = a.length, n = b.length
   let prev = new Uint16Array(n + 1)
   let curr = new Uint16Array(n + 1)
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
-      curr[j] = s1[i - 1] === s2[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], curr[j - 1])
+      curr[j] = a[i - 1] === b[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], curr[j - 1])
     }
     ;[prev, curr] = [curr, prev]
     curr.fill(0)
   }
-  // Scale back if we truncated
-  const scale = Math.min(a.length, maxLen) === a.length ? 1 : a.length / maxLen
-  return Math.round(prev[n] * scale)
+  return prev[n]
 }

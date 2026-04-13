@@ -62,6 +62,23 @@ function makeSimSortingFn(sortingRef: React.RefObject<SortingState>): SortingFn<
   }
 }
 
+type CompareOption = '37ENST' | '38ENST' | '37RefSeq' | '38RefSeq' | '38MANE(ENST)' | '38MANE(RefSeq)'
+
+const COMPARE_OPTIONS: CompareOption[] = [
+  '37ENST', '38ENST', '37RefSeq', '38RefSeq', '38MANE(ENST)', '38MANE(RefSeq)',
+]
+
+function getCompareId(option: CompareOption, rs: RowState, gene: GeneEntry): string {
+  switch (option) {
+    case '37ENST':         return rs.grch37_enst
+    case '38ENST':         return rs.grch38_enst
+    case '37RefSeq':       return rs.grch37_nm
+    case '38RefSeq':       return rs.grch38_nm
+    case '38MANE(ENST)':   return gene.mane_grch38.enst
+    case '38MANE(RefSeq)': return gene.mane_grch38.nm
+  }
+}
+
 interface Props {
   data: GeneData
   genes: GeneEntry[]
@@ -76,6 +93,9 @@ function openDiff(a: string, b: string) {
 
 export default function TranscriptTable({ data, genes }: Props) {
   const [sorting, setSorting] = useState<SortingState>([])
+  const [compareA, setCompareA] = useState<CompareOption>('37RefSeq')
+  const [compareB, setCompareB] = useState<CompareOption>('38MANE(ENST)')
+
   const sortingRef = useRef<SortingState>(sorting)
   sortingRef.current = sorting
   const simSortingFn = useMemo(() => makeSimSortingFn(sortingRef), [])
@@ -98,6 +118,19 @@ export default function TranscriptTable({ data, genes }: Props) {
       return { ...prev, [gene.gene_symbol]: next }
     })
   }, [])
+
+  // Precompute custom-compare similarities for all genes so sorting is O(1) per comparison.
+  const customSimMap = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const gene of genes) {
+      const rs = getRowState(gene)
+      const idA = getCompareId(compareA, rs, gene)
+      const idB = getCompareId(compareB, rs, gene)
+      if (!idA || !idB) { map.set(gene.gene_symbol, -1); continue }
+      map.set(gene.gene_symbol, computeSimilarity(getSeq(idA, gene), getSeq(idB, gene)).pct ?? -1)
+    }
+    return map
+  }, [genes, compareA, compareB, getRowState])
 
   const columns = useMemo<ColumnDef<GeneEntry>[]>(() => [
     {
@@ -328,12 +361,66 @@ export default function TranscriptTable({ data, genes }: Props) {
       },
     },
     {
+      id: 'sim_custom',
+      size: 160,
+      header: () => (
+        <div>
+          <div className="mb-1">Custom Compare</div>
+          <div className="flex flex-col gap-0.5 font-normal" onClick={e => e.stopPropagation()}>
+            <select
+              value={compareA}
+              onChange={e => setCompareA(e.target.value as CompareOption)}
+              className="text-[10px] border border-gray-300 rounded px-1 py-0.5 bg-white cursor-pointer w-full"
+            >
+              {COMPARE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+            <span className="text-[10px] text-gray-400 text-center leading-none">vs</span>
+            <select
+              value={compareB}
+              onChange={e => setCompareB(e.target.value as CompareOption)}
+              className="text-[10px] border border-gray-300 rounded px-1 py-0.5 bg-white cursor-pointer w-full"
+            >
+              {COMPARE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </div>
+        </div>
+      ),
+      accessorFn: row => customSimMap.get(row.gene_symbol) ?? -1,
+      sortingFn: (rowA, rowB) => {
+        const a = customSimMap.get(rowA.original.gene_symbol) ?? -1
+        const b = customSimMap.get(rowB.original.gene_symbol) ?? -1
+        const aIsNA = a === -1
+        const bIsNA = b === -1
+        if (aIsNA && bIsNA) return 0
+        if (aIsNA || bIsNA) {
+          const desc = (sortingRef.current ?? []).find(s => s.id === 'sim_custom')?.desc ?? false
+          if (aIsNA) return desc ? -1 : 1
+          return desc ? 1 : -1
+        }
+        return a - b
+      },
+      cell: ({ row }) => {
+        const rs = getRowState(row.original)
+        const idA = getCompareId(compareA, rs, row.original)
+        const idB = getCompareId(compareB, rs, row.original)
+        if (!idA || !idB) return <span className="text-gray-300">—</span>
+        const sim = computeSimilarity(getSeq(idA, row.original), getSeq(idB, row.original))
+        return (
+          <SimilarityBadge
+            sim={sim}
+            label={`${compareA} vs ${compareB}`}
+            onClick={() => openDiff(idA, idB)}
+          />
+        )
+      },
+    },
+    {
       accessorKey: 'curated_note',
       header: 'Note',
       size: 160,
       cell: ({ getValue }) => <span className="text-xs text-gray-500">{getValue() as string}</span>,
     },
-  ], [getRowState, updateRow])
+  ], [getRowState, updateRow, compareA, compareB, customSimMap])
 
   const table = useReactTable({
     data: genes,
