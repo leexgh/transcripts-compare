@@ -10,6 +10,16 @@ export interface Similarities {
   grch37_enst_vs_mane:          SimilarityResult
   grch38_enst_vs_mane:          SimilarityResult
   grch37_nm_vs_mane?:           SimilarityResult
+  // additional pairs for full coverage
+  grch37_enst_vs_grch38_refseq: SimilarityResult
+  grch37_enst_vs_mane_nm:       SimilarityResult
+  grch38_enst_vs_grch37_refseq: SimilarityResult
+  grch38_enst_vs_mane_nm:       SimilarityResult
+  grch37_refseq_vs_grch38_refseq: SimilarityResult
+  grch37_refseq_vs_mane_nm:     SimilarityResult
+  grch38_refseq_vs_mane:        SimilarityResult
+  grch38_refseq_vs_mane_nm:     SimilarityResult
+  mane_vs_mane_nm:              SimilarityResult
 }
 
 export interface Transcript {

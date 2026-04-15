@@ -746,19 +746,29 @@ def main():
 
         # ---- Sequences for similarity ----
         seq_map = {t["id"]: t["sequence"] for t in all_transcripts}
-        s37e   = seq_map.get(grch37_enst, "")
-        s38e   = seq_map.get(grch38_enst, "")
-        s37n   = seq_map.get(grch37_nm, "")
-        s38n   = seq_map.get(grch38_nm, "")
-        s_mane = seq_map.get(mane38_enst, "")
+        s37e     = seq_map.get(grch37_enst, "")
+        s38e     = seq_map.get(grch38_enst, "")
+        s37n     = seq_map.get(grch37_nm, "")
+        s38n     = seq_map.get(grch38_nm, "")
+        s_mane   = seq_map.get(mane38_enst, "")
+        s_mane_nm = seq_map.get(mane38_nm, "")
 
         similarities = {
-            "grch37_enst_vs_grch37_refseq": compute_similarity(s37e, s37n),
-            "grch38_enst_vs_grch38_refseq": compute_similarity(s38e, s38n),
-            "grch37_enst_vs_grch38_enst":   compute_similarity(s37e, s38e),
-            "grch37_enst_vs_mane":          compute_similarity(s37e, s_mane),
-            "grch38_enst_vs_mane":          compute_similarity(s38e, s_mane),
-            "grch37_nm_vs_mane":            compute_similarity(s37n, s_mane),
+            "grch37_enst_vs_grch37_refseq":   compute_similarity(s37e, s37n),
+            "grch38_enst_vs_grch38_refseq":   compute_similarity(s38e, s38n),
+            "grch37_enst_vs_grch38_enst":     compute_similarity(s37e, s38e),
+            "grch37_enst_vs_mane":            compute_similarity(s37e, s_mane),
+            "grch38_enst_vs_mane":            compute_similarity(s38e, s_mane),
+            "grch37_nm_vs_mane":              compute_similarity(s37n, s_mane),
+            "grch37_enst_vs_grch38_refseq":   compute_similarity(s37e, s38n),
+            "grch37_enst_vs_mane_nm":         compute_similarity(s37e, s_mane_nm),
+            "grch38_enst_vs_grch37_refseq":   compute_similarity(s38e, s37n),
+            "grch38_enst_vs_mane_nm":         compute_similarity(s38e, s_mane_nm),
+            "grch37_refseq_vs_grch38_refseq": compute_similarity(s37n, s38n),
+            "grch37_refseq_vs_mane_nm":       compute_similarity(s37n, s_mane_nm),
+            "grch38_refseq_vs_mane":          compute_similarity(s38n, s_mane),
+            "grch38_refseq_vs_mane_nm":       compute_similarity(s38n, s_mane_nm),
+            "mane_vs_mane_nm":                compute_similarity(s_mane, s_mane_nm),
         }
 
         # ---- Ensembl Gene ID (from TSV) ----

@@ -23,18 +23,28 @@ function buildSims(
   bm: { grch37_enst: string; grch38_enst: string; grch37_nm: string; grch38_nm: string },
   seqMap: (id: string, gene: GeneEntry) => string,
 ): Similarities {
-  const s37e = seqMap(bm.grch37_enst, row)
-  const s38e = seqMap(bm.grch38_enst, row)
-  const s37n = seqMap(bm.grch37_nm, row)
-  const s38n = seqMap(bm.grch38_nm, row)
-  const mane = seqMap(row.mane_grch38.enst, row)
+  const s37e    = seqMap(bm.grch37_enst, row)
+  const s38e    = seqMap(bm.grch38_enst, row)
+  const s37n    = seqMap(bm.grch37_nm, row)
+  const s38n    = seqMap(bm.grch38_nm, row)
+  const sMane   = seqMap(row.mane_grch38.enst, row)
+  const sManeNm = seqMap(row.mane_grch38.nm, row)
   return {
-    grch37_enst_vs_grch37_refseq: computeSimilarity(s37e, s37n),
-    grch38_enst_vs_grch38_refseq: computeSimilarity(s38e, s38n),
-    grch37_enst_vs_grch38_enst: computeSimilarity(s37e, s38e),
-    grch37_enst_vs_mane: computeSimilarity(s37e, mane),
-    grch38_enst_vs_mane: computeSimilarity(s38e, mane),
-    grch37_nm_vs_mane: computeSimilarity(s37n, mane),
+    grch37_enst_vs_grch37_refseq:   computeSimilarity(s37e, s37n),
+    grch38_enst_vs_grch38_refseq:   computeSimilarity(s38e, s38n),
+    grch37_enst_vs_grch38_enst:     computeSimilarity(s37e, s38e),
+    grch37_enst_vs_mane:            computeSimilarity(s37e, sMane),
+    grch38_enst_vs_mane:            computeSimilarity(s38e, sMane),
+    grch37_nm_vs_mane:              computeSimilarity(s37n, sMane),
+    grch37_enst_vs_grch38_refseq:   computeSimilarity(s37e, s38n),
+    grch37_enst_vs_mane_nm:         computeSimilarity(s37e, sManeNm),
+    grch38_enst_vs_grch37_refseq:   computeSimilarity(s38e, s37n),
+    grch38_enst_vs_mane_nm:         computeSimilarity(s38e, sManeNm),
+    grch37_refseq_vs_grch38_refseq: computeSimilarity(s37n, s38n),
+    grch37_refseq_vs_mane_nm:       computeSimilarity(s37n, sManeNm),
+    grch38_refseq_vs_mane:          computeSimilarity(s38n, sMane),
+    grch38_refseq_vs_mane_nm:       computeSimilarity(s38n, sManeNm),
+    mane_vs_mane_nm:                computeSimilarity(sMane, sManeNm),
   }
 }
 
@@ -68,6 +78,57 @@ const COMPARE_OPTIONS: CompareOption[] = [
   '37ENST', '38ENST', '37RefSeq', '38RefSeq', '38MANE(ENST)', '38MANE(RefSeq)',
 ]
 
+interface CompareColConfig {
+  id: string
+  defaultA: CompareOption
+  defaultB: CompareOption
+}
+
+const COMPARE_COL_CONFIGS: CompareColConfig[] = [
+  { id: 'sim_37e_37r', defaultA: '37ENST', defaultB: '37RefSeq' },
+  { id: 'sim_38e_38r', defaultA: '38ENST', defaultB: '38RefSeq' },
+  { id: 'sim_37e_38e', defaultA: '37ENST', defaultB: '38ENST' },
+  { id: 'sim_37e_mane', defaultA: '37ENST', defaultB: '38MANE(ENST)' },
+  { id: 'sim_38e_mane', defaultA: '38ENST', defaultB: '38MANE(ENST)' },
+  { id: 'sim_37r_mane', defaultA: '37RefSeq', defaultB: '38MANE(ENST)' },
+]
+
+// Map every (A, B) dropdown pair to a precomputed Similarities key (both directions).
+const PRECOMPUTED_SIM_KEY: Record<string, keyof Similarities> = {
+  // original 6 pairs
+  '37ENST|37RefSeq':         'grch37_enst_vs_grch37_refseq',
+  '37RefSeq|37ENST':         'grch37_enst_vs_grch37_refseq',
+  '38ENST|38RefSeq':         'grch38_enst_vs_grch38_refseq',
+  '38RefSeq|38ENST':         'grch38_enst_vs_grch38_refseq',
+  '37ENST|38ENST':           'grch37_enst_vs_grch38_enst',
+  '38ENST|37ENST':           'grch37_enst_vs_grch38_enst',
+  '37ENST|38MANE(ENST)':     'grch37_enst_vs_mane',
+  '38MANE(ENST)|37ENST':     'grch37_enst_vs_mane',
+  '38ENST|38MANE(ENST)':     'grch38_enst_vs_mane',
+  '38MANE(ENST)|38ENST':     'grch38_enst_vs_mane',
+  '37RefSeq|38MANE(ENST)':   'grch37_nm_vs_mane',
+  '38MANE(ENST)|37RefSeq':   'grch37_nm_vs_mane',
+  // new 9 pairs
+  '37ENST|38RefSeq':         'grch37_enst_vs_grch38_refseq',
+  '38RefSeq|37ENST':         'grch37_enst_vs_grch38_refseq',
+  '37ENST|38MANE(RefSeq)':   'grch37_enst_vs_mane_nm',
+  '38MANE(RefSeq)|37ENST':   'grch37_enst_vs_mane_nm',
+  '38ENST|37RefSeq':         'grch38_enst_vs_grch37_refseq',
+  '37RefSeq|38ENST':         'grch38_enst_vs_grch37_refseq',
+  '38ENST|38MANE(RefSeq)':   'grch38_enst_vs_mane_nm',
+  '38MANE(RefSeq)|38ENST':   'grch38_enst_vs_mane_nm',
+  '37RefSeq|38RefSeq':       'grch37_refseq_vs_grch38_refseq',
+  '38RefSeq|37RefSeq':       'grch37_refseq_vs_grch38_refseq',
+  '37RefSeq|38MANE(RefSeq)': 'grch37_refseq_vs_mane_nm',
+  '38MANE(RefSeq)|37RefSeq': 'grch37_refseq_vs_mane_nm',
+  '38RefSeq|38MANE(ENST)':   'grch38_refseq_vs_mane',
+  '38MANE(ENST)|38RefSeq':   'grch38_refseq_vs_mane',
+  '38RefSeq|38MANE(RefSeq)': 'grch38_refseq_vs_mane_nm',
+  '38MANE(RefSeq)|38RefSeq': 'grch38_refseq_vs_mane_nm',
+  '38MANE(ENST)|38MANE(RefSeq)': 'mane_vs_mane_nm',
+  '38MANE(RefSeq)|38MANE(ENST)': 'mane_vs_mane_nm',
+}
+
 function getCompareId(option: CompareOption, rs: RowState, gene: GeneEntry): string {
   switch (option) {
     case '37ENST':         return rs.grch37_enst
@@ -93,8 +154,13 @@ function openDiff(a: string, b: string) {
 
 export default function TranscriptTable({ data, genes }: Props) {
   const [sorting, setSorting] = useState<SortingState>([])
-  const [compareA, setCompareA] = useState<CompareOption>('37RefSeq')
-  const [compareB, setCompareB] = useState<CompareOption>('38MANE(ENST)')
+  const [compareSelections, setCompareSelections] = useState<Record<string, { a: CompareOption; b: CompareOption }>>(() => {
+    const init: Record<string, { a: CompareOption; b: CompareOption }> = {}
+    for (const col of COMPARE_COL_CONFIGS) {
+      init[col.id] = { a: col.defaultA, b: col.defaultB }
+    }
+    return init
+  })
 
   const sortingRef = useRef<SortingState>(sorting)
   sortingRef.current = sorting
@@ -119,18 +185,30 @@ export default function TranscriptTable({ data, genes }: Props) {
     })
   }, [])
 
-  // Precompute custom-compare similarities for all genes so sorting is O(1) per comparison.
-  const customSimMap = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const gene of genes) {
-      const rs = getRowState(gene)
-      const idA = getCompareId(compareA, rs, gene)
-      const idB = getCompareId(compareB, rs, gene)
-      if (!idA || !idB) { map.set(gene.gene_symbol, -1); continue }
-      map.set(gene.gene_symbol, computeSimilarity(getSeq(idA, gene), getSeq(idB, gene)).pct ?? -1)
+  // Precompute similarities for all compare columns so sorting is O(1) per comparison.
+  // Uses precomputed gene.similarities when the pair matches a known key to avoid expensive LCS.
+  const simMaps = useMemo(() => {
+    const maps: Record<string, Map<string, number>> = {}
+    for (const col of COMPARE_COL_CONFIGS) {
+      const sel = compareSelections[col.id]
+      const preKey = PRECOMPUTED_SIM_KEY[`${sel.a}|${sel.b}`]
+      const map = new Map<string, number>()
+      for (const gene of genes) {
+        const rs = getRowState(gene)
+        const preSim = preKey ? rs.similarities[preKey] : undefined
+        if (preSim !== undefined) {
+          map.set(gene.gene_symbol, preSim.pct ?? -1)
+        } else {
+          const idA = getCompareId(sel.a, rs, gene)
+          const idB = getCompareId(sel.b, rs, gene)
+          if (!idA || !idB) { map.set(gene.gene_symbol, -1); continue }
+          map.set(gene.gene_symbol, computeSimilarity(getSeq(idA, gene), getSeq(idB, gene)).pct ?? -1)
+        }
+      }
+      maps[col.id] = map
     }
-    return map
-  }, [genes, compareA, compareB, getRowState])
+    return maps
+  }, [genes, compareSelections, getRowState])
 
   const columns = useMemo<ColumnDef<GeneEntry>[]>(() => [
     {
@@ -248,179 +326,71 @@ export default function TranscriptTable({ data, genes }: Props) {
         )
       },
     },
-    // similarity columns
-    {
-      id: 'sim_37e_37r',
-      header: '37ENST/37RefSeq',
-      size: 130,
-      accessorFn: row => getRowState(row).similarities.grch37_enst_vs_grch37_refseq?.pct ?? -1,
-      sortingFn: simSortingFn,
-      cell: ({ row }) => {
-        const rs = getRowState(row.original)
-        return (
-          <SimilarityBadge
-            sim={rs.similarities.grch37_enst_vs_grch37_refseq}
-            label="GRCh37 ENST vs GRCh37 RefSeq"
-            onClick={() => openDiff(rs.grch37_enst, rs.grch37_nm)}
-          />
-        )
-      },
-    },
-    {
-      id: 'sim_38e_38r',
-      header: '38ENST/38RefSeq',
-      size: 130,
-      accessorFn: row => getRowState(row).similarities.grch38_enst_vs_grch38_refseq?.pct ?? -1,
-      sortingFn: simSortingFn,
-      cell: ({ row }) => {
-        const rs = getRowState(row.original)
-        return (
-          <SimilarityBadge
-            sim={rs.similarities.grch38_enst_vs_grch38_refseq}
-            label="GRCh38 ENST vs GRCh38 RefSeq"
-            onClick={() => openDiff(rs.grch38_enst, rs.grch38_nm)}
-          />
-        )
-      },
-    },
-    {
-      id: 'sim_37e_38e',
-      header: '37ENST/38ENST',
-      size: 120,
-      accessorFn: row => getRowState(row).similarities.grch37_enst_vs_grch38_enst?.pct ?? -1,
-      sortingFn: simSortingFn,
-      cell: ({ row }) => {
-        const rs = getRowState(row.original)
-        return (
-          <SimilarityBadge
-            sim={rs.similarities.grch37_enst_vs_grch38_enst}
-            label="GRCh37 ENST vs GRCh38 ENST"
-            onClick={() => openDiff(rs.grch37_enst, rs.grch38_enst)}
-          />
-        )
-      },
-    },
-    {
-      id: 'sim_37e_mane',
-      header: '37ENST/MANE',
-      size: 115,
-      accessorFn: row => getRowState(row).similarities.grch37_enst_vs_mane?.pct ?? -1,
-      sortingFn: simSortingFn,
-      cell: ({ row }) => {
-        const rs = getRowState(row.original)
-        return (
-          <SimilarityBadge
-            sim={rs.similarities.grch37_enst_vs_mane}
-            label="GRCh37 ENST vs MANE GRCh38"
-            onClick={() => openDiff(rs.grch37_enst, row.original.mane_grch38.enst)}
-          />
-        )
-      },
-    },
-    {
-      id: 'sim_38e_mane',
-      header: '38ENST/MANE',
-      size: 115,
-      accessorFn: row => getRowState(row).similarities.grch38_enst_vs_mane?.pct ?? -1,
-      sortingFn: simSortingFn,
-      cell: ({ row }) => {
-        const rs = getRowState(row.original)
-        return (
-          <SimilarityBadge
-            sim={rs.similarities.grch38_enst_vs_mane}
-            label="GRCh38 ENST vs MANE GRCh38"
-            onClick={() => openDiff(rs.grch38_enst, row.original.mane_grch38.enst)}
-          />
-        )
-      },
-    },
-    {
-      id: 'sim_37r_mane',
-      header: '37RefSeq/MANE',
-      size: 125,
-      accessorFn: row => {
-        const rs = getRowState(row)
-        return rs.similarities.grch37_nm_vs_mane?.pct ?? -1
-      },
-      sortingFn: simSortingFn,
-      cell: ({ row }) => {
-        const rs = getRowState(row.original)
-        const maneEnst = row.original.mane_grch38.enst
-        if (!maneEnst) return <span className="text-gray-300">—</span>
-        const sim = rs.similarities.grch37_nm_vs_mane ?? computeSimilarity(
-          getSeq(rs.grch37_nm, row.original),
-          getSeq(maneEnst, row.original),
-        )
-        return (
-          <SimilarityBadge
-            sim={sim}
-            label="GRCh37 RefSeq vs MANE GRCh38"
-            onClick={() => openDiff(rs.grch37_nm, maneEnst)}
-          />
-        )
-      },
-    },
-    {
-      id: 'sim_custom',
-      size: 160,
-      header: () => (
-        <div>
-          <div className="mb-1">Custom Compare</div>
-          <div className="flex flex-col gap-0.5 font-normal" onClick={e => e.stopPropagation()}>
-            <select
-              value={compareA}
-              onChange={e => setCompareA(e.target.value as CompareOption)}
-              className="text-[10px] border border-gray-300 rounded px-1 py-0.5 bg-white cursor-pointer w-full"
-            >
-              {COMPARE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-            <span className="text-[10px] text-gray-400 text-center leading-none">vs</span>
-            <select
-              value={compareB}
-              onChange={e => setCompareB(e.target.value as CompareOption)}
-              className="text-[10px] border border-gray-300 rounded px-1 py-0.5 bg-white cursor-pointer w-full"
-            >
-              {COMPARE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
+    // similarity columns — each column has configurable dropdowns
+    ...COMPARE_COL_CONFIGS.map((col): ColumnDef<GeneEntry> => {
+      const sel = compareSelections[col.id]
+      const simMap = simMaps[col.id]
+      return {
+        id: col.id,
+        size: 160,
+        header: () => (
+          <div>
+            <div className="flex flex-col gap-0.5 font-normal">
+              <select
+                value={sel.a}
+                onClick={e => e.stopPropagation()}
+                onChange={e => setCompareSelections(prev => ({
+                  ...prev,
+                  [col.id]: { ...prev[col.id], a: e.target.value as CompareOption },
+                }))}
+                className="text-[10px] border border-gray-300 rounded px-1 py-0.5 bg-white cursor-pointer w-full"
+              >
+                {COMPARE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+              <span className="text-[10px] text-gray-400 text-center leading-none">vs</span>
+              <select
+                value={sel.b}
+                onClick={e => e.stopPropagation()}
+                onChange={e => setCompareSelections(prev => ({
+                  ...prev,
+                  [col.id]: { ...prev[col.id], b: e.target.value as CompareOption },
+                }))}
+                className="text-[10px] border border-gray-300 rounded px-1 py-0.5 bg-white cursor-pointer w-full"
+              >
+                {COMPARE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
           </div>
-        </div>
-      ),
-      accessorFn: row => customSimMap.get(row.gene_symbol) ?? -1,
-      sortingFn: (rowA, rowB) => {
-        const a = customSimMap.get(rowA.original.gene_symbol) ?? -1
-        const b = customSimMap.get(rowB.original.gene_symbol) ?? -1
-        const aIsNA = a === -1
-        const bIsNA = b === -1
-        if (aIsNA && bIsNA) return 0
-        if (aIsNA || bIsNA) {
-          const desc = (sortingRef.current ?? []).find(s => s.id === 'sim_custom')?.desc ?? false
-          if (aIsNA) return desc ? -1 : 1
-          return desc ? 1 : -1
-        }
-        return a - b
-      },
-      cell: ({ row }) => {
-        const rs = getRowState(row.original)
-        const idA = getCompareId(compareA, rs, row.original)
-        const idB = getCompareId(compareB, rs, row.original)
-        if (!idA || !idB) return <span className="text-gray-300">—</span>
-        const sim = computeSimilarity(getSeq(idA, row.original), getSeq(idB, row.original))
-        return (
-          <SimilarityBadge
-            sim={sim}
-            label={`${compareA} vs ${compareB}`}
-            onClick={() => openDiff(idA, idB)}
-          />
-        )
-      },
-    },
+        ),
+        accessorFn: (row: GeneEntry) => simMap?.get(row.gene_symbol) ?? -1,
+        sortingFn: simSortingFn,
+        cell: ({ row }) => {
+          const rs = getRowState(row.original)
+          const preKey = PRECOMPUTED_SIM_KEY[`${sel.a}|${sel.b}`]
+          const preSim = preKey ? rs.similarities[preKey] : undefined
+          const idA = getCompareId(sel.a, rs, row.original)
+          const idB = getCompareId(sel.b, rs, row.original)
+          const sim = preSim !== undefined
+            ? preSim
+            : (idA && idB ? computeSimilarity(getSeq(idA, row.original), getSeq(idB, row.original)) : null)
+          if (!sim) return <span className="text-gray-300">—</span>
+          return (
+            <SimilarityBadge
+              sim={sim}
+              label={`${sel.a} vs ${sel.b}`}
+              onClick={() => openDiff(idA, idB)}
+            />
+          )
+        },
+      }
+    }),
     {
       accessorKey: 'curated_note',
       header: 'Note',
       size: 160,
       cell: ({ getValue }) => <span className="text-xs text-gray-500">{getValue() as string}</span>,
     },
-  ], [getRowState, updateRow, compareA, compareB, customSimMap])
+  ], [getRowState, updateRow, compareSelections, simMaps, simSortingFn])
 
   const table = useReactTable({
     data: genes,
