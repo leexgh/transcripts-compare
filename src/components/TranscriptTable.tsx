@@ -415,8 +415,89 @@ export default function TranscriptTable({ data, genes }: Props) {
   const totalSize = virtualizer.getTotalSize()
   const virtualRows = virtualizer.getVirtualItems()
 
+  function exportTsv() {
+    const esc = (s: string | null | undefined) => String(s ?? '').replace(/\t/g, ' ').replace(/\n/g, ' ')
+
+    const fmtTx = (id: string, gene: GeneEntry): string => {
+      if (!id) return ''
+      const t = gene.transcripts.find(tx => tx.id === id)
+      if (t?.source) return `${id}(${t.source})`
+      return id
+    }
+
+    const headers: string[] = [
+      'Gene', 'Is_Clinical', 'Is_Germline', 'HGNC_ID', 'Entrez_ID',
+      '37ENST', '38ENST', '37RefSeq', '38RefSeq', '38MANE_ENST', '38MANE_RefSeq',
+    ]
+    for (const col of COMPARE_COL_CONFIGS) {
+      const sel = compareSelections[col.id]
+      const label = `${sel.a} vs ${sel.b}`
+      headers.push(`${label} Score`, `${label} Viz_Link`)
+    }
+    headers.push('Note')
+
+    const baseUrl = window.location.href.split('#')[0]
+
+    const tsvRows = rows.map(row => {
+      const gene = row.original
+      const rs = getRowState(gene)
+
+      const cells: string[] = [
+        esc(gene.gene_symbol),
+        gene.is_clinical ? 'Yes' : 'No',
+        gene.is_germline ? 'Yes' : 'No',
+        esc(gene.hgnc_id),
+        esc(gene.entrez_gene_id),
+        esc(fmtTx(rs.grch37_enst, gene)),
+        esc(fmtTx(rs.grch38_enst, gene)),
+        esc(fmtTx(rs.grch37_nm, gene)),
+        esc(fmtTx(rs.grch38_nm, gene)),
+        esc(fmtTx(gene.mane_grch38.enst, gene)),
+        esc(fmtTx(gene.mane_grch38.nm, gene)),
+      ]
+
+      for (const col of COMPARE_COL_CONFIGS) {
+        const sel = compareSelections[col.id]
+        const preKey = PRECOMPUTED_SIM_KEY[`${sel.a}|${sel.b}`]
+        const preSim = preKey ? rs.similarities[preKey] : undefined
+        const idA = getCompareId(sel.a, rs, gene)
+        const idB = getCompareId(sel.b, rs, gene)
+        const sim = preSim !== undefined
+          ? preSim
+          : (idA && idB ? computeSimilarity(getSeq(idA, gene), getSeq(idB, gene)) : null)
+
+        const score = !sim ? '' : sim.pct === null ? 'N/A' : `${sim.pct}%`
+        const link = (idA && idB)
+          ? `${baseUrl}#/diff?a=${encodeURIComponent(idA)}&b=${encodeURIComponent(idB)}`
+          : ''
+
+        cells.push(esc(score), esc(link))
+      }
+
+      cells.push(esc(gene.curated_note))
+      return cells
+    })
+
+    const content = [headers, ...tsvRows].map(r => r.join('\t')).join('\n')
+    const blob = new Blob([content], { type: 'text/tab-separated-values' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = 'transcript_table.tsv'
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="bg-white border-b px-4 py-2 flex items-center">
+        <button
+          onClick={exportTsv}
+          className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 flex items-center gap-1.5"
+        >
+          ↓ Export TSV ({rows.length} rows)
+        </button>
+      </div>
       <div ref={parentRef} className="overflow-auto flex-1">
         <table className="min-w-full text-sm border-collapse">
           <thead className="bg-gray-50 sticky top-0 z-10">
