@@ -143,6 +143,8 @@ function getCompareId(option: CompareOption, rs: RowState, gene: GeneEntry): str
 interface Props {
   data: GeneData
   genes: GeneEntry[]
+  sorting: SortingState
+  onSortingChange: (updater: SortingState | ((prev: SortingState) => SortingState)) => void
 }
 
 function openDiff(a: string, b: string) {
@@ -152,8 +154,7 @@ function openDiff(a: string, b: string) {
   )
 }
 
-export default function TranscriptTable({ data, genes }: Props) {
-  const [sorting, setSorting] = useState<SortingState>([])
+export default function TranscriptTable({ data, genes, sorting, onSortingChange }: Props) {
   const [compareSelections, setCompareSelections] = useState<Record<string, { a: CompareOption; b: CompareOption }>>(() => {
     const init: Record<string, { a: CompareOption; b: CompareOption }> = {}
     for (const col of COMPARE_COL_CONFIGS) {
@@ -396,7 +397,7 @@ export default function TranscriptTable({ data, genes }: Props) {
     data: genes,
     columns,
     state: { sorting },
-    onSortingChange: setSorting,
+    onSortingChange,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),

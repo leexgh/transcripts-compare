@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { HashRouter, Routes, Route, NavLink, useNavigate, useLocation } from 'react-router-dom'
+import React, { useMemo } from 'react'
+import { HashRouter, Routes, Route, NavLink, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useGeneData, useFilteredGenes } from './hooks/useGeneData'
 import FilterBar from './components/FilterBar'
 import TranscriptTable from './components/TranscriptTable'
@@ -7,20 +7,54 @@ import DiffViewer from './components/DiffViewer'
 import ListCompareTab from './components/ListCompareTab'
 import TranscriptCompareTab from './components/TranscriptCompareTab'
 import ProteinComparePage from './components/ProteinComparePage'
-import type { FilterState } from './lib/types'
-
-const DEFAULT_FILTERS: FilterState = {
-  assembly:     'both',
-  search:       '',
-  clinicalOnly:  false,
-  germlineOnly:  false,
-  maneOnly:      false,
-  mismatchOnly:  false,
-}
+import type { FilterState, AssemblyFilter } from './lib/types'
+import type { SortingState } from '@tanstack/react-table'
 
 function MainView() {
   const { data, loading, error } = useGeneData()
-  const [filters, setFilters]   = useState<FilterState>(DEFAULT_FILTERS)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const filters: FilterState = {
+    assembly: (['both', 'GRCh37', 'GRCh38'].includes(searchParams.get('assembly') ?? '')
+      ? searchParams.get('assembly') as AssemblyFilter : 'both'),
+    search:       searchParams.get('q') ?? '',
+    clinicalOnly:  searchParams.has('clinical'),
+    germlineOnly:  searchParams.has('germline'),
+    maneOnly:      searchParams.has('mane'),
+    mismatchOnly:  searchParams.has('mismatch'),
+  }
+
+  const sorting: SortingState = useMemo(() => {
+    const raw = searchParams.get('sort')
+    if (!raw) return []
+    return raw.split(',').flatMap(part => {
+      const [id, dir] = part.split(':')
+      return id ? [{ id, desc: dir === 'desc' }] : []
+    })
+  }, [searchParams])
+
+  const setFilters = (f: FilterState) => {
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev)
+      if (f.assembly !== 'both') p.set('assembly', f.assembly); else p.delete('assembly')
+      if (f.search)       p.set('q', f.search);    else p.delete('q')
+      if (f.clinicalOnly) p.set('clinical', '1');  else p.delete('clinical')
+      if (f.germlineOnly) p.set('germline', '1');  else p.delete('germline')
+      if (f.maneOnly)     p.set('mane', '1');      else p.delete('mane')
+      if (f.mismatchOnly) p.set('mismatch', '1');  else p.delete('mismatch')
+      return p
+    }, { replace: true })
+  }
+
+  const setSorting = (updater: SortingState | ((prev: SortingState) => SortingState)) => {
+    const next = typeof updater === 'function' ? updater(sorting) : updater
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev)
+      if (next.length === 0) p.delete('sort')
+      else p.set('sort', next.map(s => `${s.id}:${s.desc ? 'desc' : 'asc'}`).join(','))
+      return p
+    }, { replace: true })
+  }
 
   const genes    = data?.genes ?? []
   const filtered = useFilteredGenes(genes, filters)
@@ -32,7 +66,7 @@ function MainView() {
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       <FilterBar filters={filters} onChange={setFilters} geneCount={filtered.length} total={genes.length} />
-      <TranscriptTable data={data} genes={filtered} />
+      <TranscriptTable data={data} genes={filtered} sorting={sorting} onSortingChange={setSorting} />
     </div>
   )
 }
