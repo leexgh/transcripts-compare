@@ -4,6 +4,7 @@ import {
   flexRender, type ColumnDef, type SortingState, type SortingFn,
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { useSearchParams } from 'react-router-dom'
 import type { GeneEntry, GeneData, Similarities } from '../lib/types'
 import { computeSimilarity } from '../lib/similarity'
 import SimilarityBadge from './SimilarityBadge'
@@ -78,20 +79,37 @@ const COMPARE_OPTIONS: CompareOption[] = [
   '37ENST', '38ENST', '37RefSeq', '38RefSeq', '38MANE(ENST)', '38MANE(RefSeq)',
 ]
 
-interface CompareColConfig {
-  id: string
-  defaultA: CompareOption
-  defaultB: CompareOption
+// Short abbreviations used in URL param to keep it clean
+const OPTION_ABBREV: Record<CompareOption, string> = {
+  '37ENST': '37e', '38ENST': '38e',
+  '37RefSeq': '37r', '38RefSeq': '38r',
+  '38MANE(ENST)': '38me', '38MANE(RefSeq)': '38mr',
+}
+const ABBREV_OPTION: Record<string, CompareOption> = Object.fromEntries(
+  Object.entries(OPTION_ABBREV).map(([k, v]) => [v, k as CompareOption])
+)
+
+const DEFAULT_COLS_PARAM = '37e~37r,38e~38r,37e~38e,37e~38me,38e~38me,37r~38me'
+
+interface ActiveCol {
+  id: string          // stable TanStack column id, e.g. 'sim_37e~37r'
+  a: CompareOption
+  b: CompareOption
 }
 
-const COMPARE_COL_CONFIGS: CompareColConfig[] = [
-  { id: 'sim_37e_37r', defaultA: '37ENST', defaultB: '37RefSeq' },
-  { id: 'sim_38e_38r', defaultA: '38ENST', defaultB: '38RefSeq' },
-  { id: 'sim_37e_38e', defaultA: '37ENST', defaultB: '38ENST' },
-  { id: 'sim_37e_mane', defaultA: '37ENST', defaultB: '38MANE(ENST)' },
-  { id: 'sim_38e_mane', defaultA: '38ENST', defaultB: '38MANE(ENST)' },
-  { id: 'sim_37r_mane', defaultA: '37RefSeq', defaultB: '38MANE(ENST)' },
-]
+function parseCols(param: string | null): ActiveCol[] {
+  const raw = param || DEFAULT_COLS_PARAM
+  const counts: Record<string, number> = {}
+  return raw.split(',').flatMap(part => {
+    const [abbrevA, abbrevB] = part.split('~')
+    const a = ABBREV_OPTION[abbrevA]
+    const b = ABBREV_OPTION[abbrevB]
+    if (!a || !b) return []
+    counts[part] = (counts[part] ?? 0) + 1
+    const id = counts[part] === 1 ? `sim_${part}` : `sim_${part}_${counts[part]}`
+    return [{ id, a, b }]
+  })
+}
 
 // Map every (A, B) dropdown pair to a precomputed Similarities key (both directions).
 const PRECOMPUTED_SIM_KEY: Record<string, keyof Similarities> = {
@@ -155,13 +173,55 @@ function openDiff(a: string, b: string) {
 }
 
 export default function TranscriptTable({ data, genes, sorting, onSortingChange }: Props) {
-  const [compareSelections, setCompareSelections] = useState<Record<string, { a: CompareOption; b: CompareOption }>>(() => {
-    const init: Record<string, { a: CompareOption; b: CompareOption }> = {}
-    for (const col of COMPARE_COL_CONFIGS) {
-      init[col.id] = { a: col.defaultA, b: col.defaultB }
-    }
-    return init
-  })
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const activeCols = useMemo(() => parseCols(searchParams.get('cols')), [searchParams])
+
+  // Update the cols URL param, optionally patching sort in the same call
+  const setColsParam = (
+    newCols: Array<{ a: CompareOption; b: CompareOption }>,
+    patchSort?: (p: URLSearchParams) => void,
+  ) => {
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev)
+      const serialized = newCols.map(c => `${OPTION_ABBREV[c.a]}~${OPTION_ABBREV[c.b]}`).join(',')
+      if (serialized === DEFAULT_COLS_PARAM) p.delete('cols')
+      else p.set('cols', serialized)
+      patchSort?.(p)
+      return p
+    }, { replace: true })
+  }
+
+  const removeCol = (colIndex: number) => {
+    const removedId = activeCols[colIndex].id
+    setColsParam(
+      activeCols.filter((_, i) => i !== colIndex),
+      p => {
+        const parts = (p.get('sort') ?? '').split(',').filter(s => s && !s.startsWith(removedId + ':'))
+        if (parts.length === 0) p.delete('sort'); else p.set('sort', parts.join(','))
+      },
+    )
+  }
+
+  const updateColAB = (colIndex: number, patch: { a?: CompareOption; b?: CompareOption }) => {
+    const oldCol = activeCols[colIndex]
+    const oldId = oldCol.id
+    const updated = activeCols.map((c, i) => i === colIndex ? { ...c, ...patch } : c)
+    // Recompute the new id the same way parseCols would
+    const newId = parseCols(updated.map(c => `${OPTION_ABBREV[c.a]}~${OPTION_ABBREV[c.b]}`).join(','))[colIndex].id
+    setColsParam(
+      updated,
+      p => {
+        if (oldId !== newId) {
+          const parts = (p.get('sort') ?? '').split(',').filter(Boolean)
+            .map(s => s.startsWith(oldId + ':') ? s.replace(oldId + ':', newId + ':') : s)
+          if (parts.length === 0) p.delete('sort'); else p.set('sort', parts.join(','))
+        }
+      },
+    )
+  }
+
+  const addCol = () => setColsParam([...activeCols, { a: '37ENST', b: '38ENST' }])
 
   const sortingRef = useRef<SortingState>(sorting)
   sortingRef.current = sorting
@@ -190,9 +250,8 @@ export default function TranscriptTable({ data, genes, sorting, onSortingChange 
   // Uses precomputed gene.similarities when the pair matches a known key to avoid expensive LCS.
   const simMaps = useMemo(() => {
     const maps: Record<string, Map<string, number>> = {}
-    for (const col of COMPARE_COL_CONFIGS) {
-      const sel = compareSelections[col.id]
-      const preKey = PRECOMPUTED_SIM_KEY[`${sel.a}|${sel.b}`]
+    for (const col of activeCols) {
+      const preKey = PRECOMPUTED_SIM_KEY[`${col.a}|${col.b}`]
       const map = new Map<string, number>()
       for (const gene of genes) {
         const rs = getRowState(gene)
@@ -200,8 +259,8 @@ export default function TranscriptTable({ data, genes, sorting, onSortingChange 
         if (preSim !== undefined) {
           map.set(gene.gene_symbol, preSim.pct ?? -1)
         } else {
-          const idA = getCompareId(sel.a, rs, gene)
-          const idB = getCompareId(sel.b, rs, gene)
+          const idA = getCompareId(col.a, rs, gene)
+          const idB = getCompareId(col.b, rs, gene)
           if (!idA || !idB) { map.set(gene.gene_symbol, -1); continue }
           map.set(gene.gene_symbol, computeSimilarity(getSeq(idA, gene), getSeq(idB, gene)).pct ?? -1)
         }
@@ -209,7 +268,7 @@ export default function TranscriptTable({ data, genes, sorting, onSortingChange 
       maps[col.id] = map
     }
     return maps
-  }, [genes, compareSelections, getRowState])
+  }, [genes, activeCols, getRowState])
 
   const columns = useMemo<ColumnDef<GeneEntry>[]>(() => [
     {
@@ -327,50 +386,48 @@ export default function TranscriptTable({ data, genes, sorting, onSortingChange 
         )
       },
     },
-    // similarity columns — each column has configurable dropdowns
-    ...COMPARE_COL_CONFIGS.map((col): ColumnDef<GeneEntry> => {
-      const sel = compareSelections[col.id]
+    // similarity columns — each column has configurable dropdowns and a close button
+    ...activeCols.map((col, colIndex): ColumnDef<GeneEntry> => {
       const simMap = simMaps[col.id]
       return {
         id: col.id,
-        size: 160,
+        size: 165,
         header: () => (
-          <div>
-            <div className="flex flex-col gap-0.5 font-normal">
+          <div className="flex flex-col gap-0.5 font-normal">
+            <div className="flex items-center justify-between gap-0.5">
               <select
-                value={sel.a}
+                value={col.a}
                 onClick={e => e.stopPropagation()}
-                onChange={e => setCompareSelections(prev => ({
-                  ...prev,
-                  [col.id]: { ...prev[col.id], a: e.target.value as CompareOption },
-                }))}
-                className="text-[10px] border border-gray-300 rounded px-1 py-0.5 bg-white cursor-pointer w-full"
+                onChange={e => updateColAB(colIndex, { a: e.target.value as CompareOption })}
+                className="text-[10px] border border-gray-300 rounded px-1 py-0.5 bg-white cursor-pointer flex-1 min-w-0"
               >
                 {COMPARE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
-              <span className="text-[10px] text-gray-400 text-center leading-none">vs</span>
-              <select
-                value={sel.b}
-                onClick={e => e.stopPropagation()}
-                onChange={e => setCompareSelections(prev => ({
-                  ...prev,
-                  [col.id]: { ...prev[col.id], b: e.target.value as CompareOption },
-                }))}
-                className="text-[10px] border border-gray-300 rounded px-1 py-0.5 bg-white cursor-pointer w-full"
-              >
-                {COMPARE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-              </select>
+              <button
+                onClick={e => { e.stopPropagation(); removeCol(colIndex) }}
+                title="Remove column"
+                className="text-gray-300 hover:text-red-500 leading-none text-base px-0.5 shrink-0"
+              >×</button>
             </div>
+            <span className="text-[10px] text-gray-400 text-center leading-none">vs</span>
+            <select
+              value={col.b}
+              onClick={e => e.stopPropagation()}
+              onChange={e => updateColAB(colIndex, { b: e.target.value as CompareOption })}
+              className="text-[10px] border border-gray-300 rounded px-1 py-0.5 bg-white cursor-pointer w-full"
+            >
+              {COMPARE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
           </div>
         ),
         accessorFn: (row: GeneEntry) => simMap?.get(row.gene_symbol) ?? -1,
         sortingFn: simSortingFn,
         cell: ({ row }) => {
           const rs = getRowState(row.original)
-          const preKey = PRECOMPUTED_SIM_KEY[`${sel.a}|${sel.b}`]
+          const preKey = PRECOMPUTED_SIM_KEY[`${col.a}|${col.b}`]
           const preSim = preKey ? rs.similarities[preKey] : undefined
-          const idA = getCompareId(sel.a, rs, row.original)
-          const idB = getCompareId(sel.b, rs, row.original)
+          const idA = getCompareId(col.a, rs, row.original)
+          const idB = getCompareId(col.b, rs, row.original)
           const sim = preSim !== undefined
             ? preSim
             : (idA && idB ? computeSimilarity(getSeq(idA, row.original), getSeq(idB, row.original)) : null)
@@ -378,7 +435,7 @@ export default function TranscriptTable({ data, genes, sorting, onSortingChange 
           return (
             <SimilarityBadge
               sim={sim}
-              label={`${sel.a} vs ${sel.b}`}
+              label={`${col.a} vs ${col.b}`}
               onClick={() => openDiff(idA, idB)}
             />
           )
@@ -391,7 +448,21 @@ export default function TranscriptTable({ data, genes, sorting, onSortingChange 
       size: 160,
       cell: ({ getValue }) => <span className="text-xs text-gray-500">{getValue() as string}</span>,
     },
-  ], [getRowState, updateRow, compareSelections, simMaps, simSortingFn])
+    // "Add column" button as a virtual last column
+    {
+      id: '__add_col',
+      size: 44,
+      enableSorting: false,
+      header: () => (
+        <button
+          onClick={e => { e.stopPropagation(); addCol() }}
+          title="Add comparison column"
+          className="w-7 h-7 rounded-full border-2 border-dashed border-gray-300 hover:border-blue-400 text-gray-400 hover:text-blue-500 flex items-center justify-center text-lg leading-none"
+        >+</button>
+      ),
+      cell: () => null,
+    },
+  ], [getRowState, updateRow, activeCols, simMaps, simSortingFn, removeCol, updateColAB, addCol])
 
   const table = useReactTable({
     data: genes,
@@ -430,10 +501,8 @@ export default function TranscriptTable({ data, genes, sorting, onSortingChange 
       'Gene', 'Is_Clinical', 'Is_Germline', 'HGNC_ID', 'Entrez_ID',
       '37ENST', '38ENST', '37RefSeq', '38RefSeq', '38MANE_ENST', '38MANE_RefSeq',
     ]
-    for (const col of COMPARE_COL_CONFIGS) {
-      const sel = compareSelections[col.id]
-      const label = `${sel.a} vs ${sel.b}`
-      headers.push(`${label} Score`, `${label} Viz_Link`)
+    for (const col of activeCols) {
+      headers.push(`${col.a} vs ${col.b} Score`, `${col.a} vs ${col.b} Viz_Link`)
     }
     headers.push('Note')
 
@@ -457,12 +526,11 @@ export default function TranscriptTable({ data, genes, sorting, onSortingChange 
         esc(fmtTx(gene.mane_grch38.nm, gene)),
       ]
 
-      for (const col of COMPARE_COL_CONFIGS) {
-        const sel = compareSelections[col.id]
-        const preKey = PRECOMPUTED_SIM_KEY[`${sel.a}|${sel.b}`]
+      for (const col of activeCols) {
+        const preKey = PRECOMPUTED_SIM_KEY[`${col.a}|${col.b}`]
         const preSim = preKey ? rs.similarities[preKey] : undefined
-        const idA = getCompareId(sel.a, rs, gene)
-        const idB = getCompareId(sel.b, rs, gene)
+        const idA = getCompareId(col.a, rs, gene)
+        const idB = getCompareId(col.b, rs, gene)
         const sim = preSim !== undefined
           ? preSim
           : (idA && idB ? computeSimilarity(getSeq(idA, gene), getSeq(idB, gene)) : null)
