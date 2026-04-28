@@ -2,28 +2,20 @@ import type { SimilarityResult } from './types'
 
 /**
  * Compute sequence similarity using a longest-common-subsequence approach.
- * Correctly handles insertions and deletions (not just char-by-char).
  * Uses the same formula as Python's difflib.SequenceMatcher.ratio():
- *   2 * matches / (len1 + len2)
+ *   2 * lcs / (len1 + len2)
+ *
+ * The old same-length char-by-char shortcut has been removed. Same-length
+ * isoforms can have compensating insertions+deletions; char-by-char treats
+ * the entire shifted region as mismatches, producing wildly wrong scores.
+ * LCS handles all cases correctly and consistently with precomputed values.
  */
 export function computeSimilarity(seq1: string, seq2: string): SimilarityResult {
   if (!seq1 || !seq2) return { pct: null, diff_count: 0 }
+  if (seq1 === seq2)  return { pct: 100,  diff_count: 0 }
 
-  if (seq1 === seq2) return { pct: 100, diff_count: 0 }
-
-  // For same-length sequences: fast char-by-char
-  if (seq1.length === seq2.length) {
-    let mismatches = 0
-    for (let i = 0; i < seq1.length; i++) {
-      if (seq1[i] !== seq2[i]) mismatches++
-    }
-    const pct = Math.round(((seq1.length - mismatches) / seq1.length) * 10000) / 100
-    return { pct, diff_count: mismatches }
-  }
-
-  // For different-length sequences: LCS-based (mirrors difflib ratio).
-  const lcsLen = lcs(seq1, seq2)
-  const pct = Math.round((2 * lcsLen / (seq1.length + seq2.length)) * 10000) / 100
+  const lcsLen     = lcs(seq1, seq2)
+  const pct        = Math.round((2 * lcsLen / (seq1.length + seq2.length)) * 10000) / 100
   const diff_count = seq1.length + seq2.length - 2 * lcsLen
   return { pct, diff_count }
 }

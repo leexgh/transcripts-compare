@@ -1,6 +1,15 @@
 /**
  * Needleman-Wunsch global alignment for protein sequences.
- * Falls back to char-by-char for same-length sequences.
+ *
+ * Always uses NW — the same-length char-by-char shortcut was removed because
+ * isoforms can have the same total length while containing a compensating
+ * insertion+deletion. In that case char-by-char mislabels the entire shifted
+ * region as substitutions instead of one ins + one del, producing a wildly
+ * wrong identity score.
+ *
+ * Percent identity uses the same formula as Python difflib / computeSimilarity:
+ *   2 * matches / (len1 + len2)
+ * so the score shown in the diff viewer is consistent with the table.
  */
 
 export interface AlignmentResult {
@@ -12,89 +21,69 @@ export interface AlignmentResult {
 }
 
 const GAP_OPEN = -10
-const GAP_EXT  = -1
-
-// Simplified scoring: match=1, mismatch=-1, gap=GAP_OPEN
-function score(a: string, b: string): number {
-  if (a === '-' || b === '-') return GAP_OPEN
-  return a === b ? 1 : -1
-}
 
 export function align(seq1: string, seq2: string): AlignmentResult {
-  if (seq1.length === seq2.length) {
-    // Simple char-by-char
-    let diffs = 0
-    const parts1: string[] = []
-    const parts2: string[] = []
-    for (let i = 0; i < seq1.length; i++) {
-      parts1.push(seq1[i])
-      parts2.push(seq2[i])
-      if (seq1[i] !== seq2[i]) diffs++
-    }
-    const pct = seq1.length > 0
-      ? Math.round(((seq1.length - diffs) / seq1.length) * 10000) / 100
-      : 100
-    return { seq1Aligned: seq1, seq2Aligned: seq2, score: seq1.length - diffs, pct, diffCount: diffs }
-  }
-
-  // Needleman-Wunsch for different lengths
   const n = seq1.length
   const m = seq2.length
 
-  // Cap at 2000 AA for performance
-  if (n > 2000 || m > 2000) {
-    return alignTruncated(seq1.slice(0, 2000), seq2.slice(0, 2000))
+  if (n === 0 || m === 0) {
+    return { seq1Aligned: seq1, seq2Aligned: seq2, score: 0, pct: 0, diffCount: n + m }
   }
 
-  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
-  // Init
-  for (let i = 0; i <= n; i++) dp[i][0] = i * GAP_OPEN
-  for (let j = 0; j <= m; j++) dp[0][j] = j * GAP_OPEN
+  // Cap at 2000 AA each for performance (O(n·m) memory + time).
+  if (n > 2000 || m > 2000) {
+    return align(seq1.slice(0, 2000), seq2.slice(0, 2000))
+  }
+
+  // ── Needleman-Wunsch DP (linear gap penalty) ──────────────────────────────
+  // Use a flat Int32Array to avoid the overhead of a jagged array.
+  const W = m + 1
+  const dp = new Int32Array((n + 1) * W)
+
+  for (let i = 0; i <= n; i++) dp[i * W] = i * GAP_OPEN
+  for (let j = 0; j <= m; j++) dp[j]     = j * GAP_OPEN
 
   for (let i = 1; i <= n; i++) {
     for (let j = 1; j <= m; j++) {
-      const match = dp[i - 1][j - 1] + score(seq1[i - 1], seq2[j - 1])
-      const del   = dp[i - 1][j]     + GAP_OPEN
-      const ins   = dp[i][j - 1]     + GAP_OPEN
-      dp[i][j] = Math.max(match, del, ins)
+      const sub   = dp[(i - 1) * W + (j - 1)] + (seq1[i - 1] === seq2[j - 1] ? 1 : -1)
+      const del_  = dp[(i - 1) * W + j]       + GAP_OPEN
+      const ins   = dp[i       * W + (j - 1)] + GAP_OPEN
+      dp[i * W + j] = sub > del_ ? (sub > ins ? sub : ins) : (del_ > ins ? del_ : ins)
     }
   }
 
-  // Traceback
+  // ── Traceback ─────────────────────────────────────────────────────────────
   let i = n, j = m
   let a1 = '', a2 = ''
   while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && dp[i][j] === dp[i-1][j-1] + score(seq1[i-1], seq2[j-1])) {
-      a1 = seq1[i-1] + a1
-      a2 = seq2[j-1] + a2
+    if (
+      i > 0 && j > 0 &&
+      dp[i * W + j] === dp[(i - 1) * W + (j - 1)] + (seq1[i - 1] === seq2[j - 1] ? 1 : -1)
+    ) {
+      a1 = seq1[i - 1] + a1
+      a2 = seq2[j - 1] + a2
       i--; j--
-    } else if (i > 0 && dp[i][j] === dp[i-1][j] + GAP_OPEN) {
-      a1 = seq1[i-1] + a1
+    } else if (i > 0 && dp[i * W + j] === dp[(i - 1) * W + j] + GAP_OPEN) {
+      a1 = seq1[i - 1] + a1
       a2 = '-' + a2
       i--
     } else {
       a1 = '-' + a1
-      a2 = seq2[j-1] + a2
+      a2 = seq2[j - 1] + a2
       j--
     }
   }
 
-  let diffs = 0
-  let totalCols = a1.length
-  for (let k = 0; k < totalCols; k++) {
-    if (a1[k] !== a2[k]) diffs++
+  // ── Metrics (consistent with Python difflib / computeSimilarity) ──────────
+  // Count only non-gap identical columns; divide by total original residues.
+  let matches = 0
+  for (let k = 0; k < a1.length; k++) {
+    if (a1[k] !== '-' && a1[k] === a2[k]) matches++
   }
-  const pct = totalCols > 0
-    ? Math.round(((totalCols - diffs) / totalCols) * 10000) / 100
-    : 100
+  const pct       = Math.round((2 * matches / (n + m)) * 10000) / 100
+  const diffCount = n + m - 2 * matches
 
-  return { seq1Aligned: a1, seq2Aligned: a2, score: dp[n][m], pct, diffCount: diffs }
-}
-
-function alignTruncated(s1: string, s2: string): AlignmentResult {
-  // Simple alignment for truncated sequences
-  const result = align(s1, s2)
-  return result
+  return { seq1Aligned: a1, seq2Aligned: a2, score: dp[n * W + m], pct, diffCount }
 }
 
 export interface DiffBlock {
