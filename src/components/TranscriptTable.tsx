@@ -7,6 +7,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useSearchParams } from 'react-router-dom'
 import type { GeneEntry, GeneData, Similarities } from '../lib/types'
 import { computeSimilarity } from '../lib/similarity'
+import { LONG_SEQ_THRESHOLD } from '../lib/alignment'
 import SimilarityBadge from './SimilarityBadge'
 import TranscriptDropdown from './TranscriptDropdown'
 
@@ -428,16 +429,27 @@ export default function TranscriptTable({ data, genes, sorting, onSortingChange 
           const preSim = preKey ? rs.similarities[preKey] : undefined
           const idA = getCompareId(col.a, rs, row.original)
           const idB = getCompareId(col.b, rs, row.original)
+          const seqA = idA ? getSeq(idA, row.original) : ''
+          const seqB = idB ? getSeq(idB, row.original) : ''
+          const isLong = seqA.length > LONG_SEQ_THRESHOLD || seqB.length > LONG_SEQ_THRESHOLD
           const sim = preSim !== undefined
             ? preSim
-            : (idA && idB ? computeSimilarity(getSeq(idA, row.original), getSeq(idB, row.original)) : null)
+            : (idA && idB ? computeSimilarity(seqA, seqB) : null)
           if (!sim) return <span className="text-gray-300">—</span>
           return (
-            <SimilarityBadge
-              sim={sim}
-              label={`${col.a} vs ${col.b}`}
-              onClick={() => openDiff(idA, idB)}
-            />
+            <div className="flex items-center gap-1">
+              {isLong && (
+                <span
+                  title={`Sequences exceed ${LONG_SEQ_THRESHOLD} AA — alignment viewer will prompt before computing`}
+                  className="text-amber-500 text-xs leading-none"
+                >⚠</span>
+              )}
+              <SimilarityBadge
+                sim={sim}
+                label={`${col.a} vs ${col.b}`}
+                onClick={() => openDiff(idA, idB)}
+              />
+            </div>
           )
         },
       }

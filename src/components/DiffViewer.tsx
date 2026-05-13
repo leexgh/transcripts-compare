@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import type { GeneData, Transcript } from '../lib/types'
-import { align, buildDiffBlocks } from '../lib/alignment'
-import type { DiffBlock } from '../lib/alignment'
+import type { GeneData } from '../lib/types'
+import { buildDiffBlocks, LONG_SEQ_THRESHOLD } from '../lib/alignment'
+import { useAlignWorker } from '../hooks/useAlignWorker'
 
 const CHARS_PER_ROW = 60
 
@@ -69,10 +69,7 @@ export default function DiffViewer({ data, seq1: propSeq1, seq2: propSeq2, name1
   const name1 = propName1 ?? id1
   const name2 = propName2 ?? id2
 
-  const result = useMemo(() => {
-    if (!seq1 || !seq2) return null
-    return align(seq1, seq2)
-  }, [seq1, seq2])
+  const { result, status, isLong, run } = useAlignWorker(seq1, seq2)
 
   const blocks = useMemo(() => {
     if (!result) return []
@@ -117,47 +114,90 @@ export default function DiffViewer({ data, seq1: propSeq1, seq2: propSeq2, name1
         </div>
       </div>
 
-      {/* Legend */}
-      <div className="flex gap-3 mb-4 text-xs">
-        <span className="px-2 py-0.5 bg-red-200 rounded">Substitution</span>
-        <span className="px-2 py-0.5 bg-blue-200 rounded">Insertion</span>
-        <span className="px-2 py-0.5 bg-gray-200 rounded">Deletion</span>
-      </div>
-
-      {/* Aligned view */}
-      <div className="bg-gray-50 rounded-lg p-4 overflow-x-auto mb-6">
-        {rows.map((r, i) => (
-          <AlignedRow key={i} a1={r.a1} a2={r.a2} offset={r.offset} />
-        ))}
-      </div>
-
-      {/* Diff summary */}
-      {blocks.length > 0 && (
-        <div className="mt-4">
-          <h3 className="font-medium mb-2 text-sm">Differences</h3>
-          <div className="divide-y text-sm">
-            {blocks.map((b, i) => (
-              <div key={i} className="py-1.5 flex items-start gap-3">
-                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                  b.type === 'sub' ? 'bg-red-100 text-red-700' :
-                  b.type === 'ins' ? 'bg-blue-100 text-blue-700' :
-                  'bg-gray-100 text-gray-600'
-                }`}>{b.type}</span>
-                <span>
-                  {b.type === 'sub' && (
-                    <><code className="font-mono">{b.seq1chars}</code> → <code className="font-mono">{b.seq2chars}</code> at position {b.pos1 + 1}</>
-                  )}
-                  {b.type === 'ins' && (
-                    <><code className="font-mono">{b.seq2chars}</code> insertion at position {b.pos2 + 1} in Seq2</>
-                  )}
-                  {b.type === 'del' && (
-                    <><code className="font-mono">{b.seq1chars}</code> deletion at position {b.pos1 + 1} in Seq1</>
-                  )}
-                </span>
-              </div>
-            ))}
+      {/* Long-sequence warning + trigger */}
+      {isLong && status === 'idle' && (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="mt-0.5 shrink-0 text-base">⚠</span>
+          <div>
+            <p className="font-medium">
+              Sequences exceed {LONG_SEQ_THRESHOLD} AA ({Math.max(seq1.length, seq2.length).toLocaleString()} AA max).
+            </p>
+            <p className="mt-0.5 text-xs text-amber-700">
+              Full Needleman-Wunsch alignment may take several seconds and use significant memory.
+            </p>
+            <button
+              onClick={run}
+              className="mt-2 rounded bg-amber-700 px-3 py-1 text-xs font-medium text-white hover:bg-amber-800"
+            >
+              Run Full Alignment
+            </button>
           </div>
         </div>
+      )}
+
+      {/* Running spinner */}
+      {status === 'running' && (
+        <div className="mb-4 flex items-center gap-2 text-sm text-gray-500">
+          <svg className="h-4 w-4 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+          </svg>
+          Computing alignment…
+        </div>
+      )}
+
+      {status === 'error' && (
+        <div className="mb-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Alignment failed. The sequences may be too large for available memory.
+          <button onClick={run} className="ml-3 underline hover:no-underline">Retry</button>
+        </div>
+      )}
+
+      {result && (
+        <>
+          {/* Legend */}
+          <div className="flex gap-3 mb-4 text-xs">
+            <span className="px-2 py-0.5 bg-red-200 rounded">Substitution</span>
+            <span className="px-2 py-0.5 bg-blue-200 rounded">Insertion</span>
+            <span className="px-2 py-0.5 bg-gray-200 rounded">Deletion</span>
+          </div>
+
+          {/* Aligned view */}
+          <div className="bg-gray-50 rounded-lg p-4 overflow-x-auto mb-6">
+            {rows.map((r, i) => (
+              <AlignedRow key={i} a1={r.a1} a2={r.a2} offset={r.offset} />
+            ))}
+          </div>
+
+          {/* Diff summary */}
+          {blocks.length > 0 && (
+            <div className="mt-4">
+              <h3 className="font-medium mb-2 text-sm">Differences</h3>
+              <div className="divide-y text-sm">
+                {blocks.map((b, i) => (
+                  <div key={i} className="py-1.5 flex items-start gap-3">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      b.type === 'sub' ? 'bg-red-100 text-red-700' :
+                      b.type === 'ins' ? 'bg-blue-100 text-blue-700' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>{b.type}</span>
+                    <span>
+                      {b.type === 'sub' && (
+                        <><code className="font-mono">{b.seq1chars}</code> → <code className="font-mono">{b.seq2chars}</code> at position {b.pos1 + 1}</>
+                      )}
+                      {b.type === 'ins' && (
+                        <><code className="font-mono">{b.seq2chars}</code> insertion at position {b.pos2 + 1} in Seq2</>
+                      )}
+                      {b.type === 'del' && (
+                        <><code className="font-mono">{b.seq1chars}</code> deletion at position {b.pos1 + 1} in Seq1</>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

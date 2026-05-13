@@ -22,17 +22,14 @@ export interface AlignmentResult {
 
 const GAP_OPEN = -10
 
+export const LONG_SEQ_THRESHOLD = 2000
+
 export function align(seq1: string, seq2: string): AlignmentResult {
   const n = seq1.length
   const m = seq2.length
 
   if (n === 0 || m === 0) {
     return { seq1Aligned: seq1, seq2Aligned: seq2, score: 0, pct: 0, diffCount: n + m }
-  }
-
-  // Cap at 2000 AA each for performance (O(n·m) memory + time).
-  if (n > 2000 || m > 2000) {
-    return align(seq1.slice(0, 2000), seq2.slice(0, 2000))
   }
 
   // ── Needleman-Wunsch DP (linear gap penalty) ──────────────────────────────

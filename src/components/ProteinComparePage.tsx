@@ -1,6 +1,8 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useEffect, useRef } from 'react'
 import { useGeneData } from '../hooks/useGeneData'
-import { align, buildDiffBlocks } from '../lib/alignment'
+import { align, buildDiffBlocks, LONG_SEQ_THRESHOLD } from '../lib/alignment'
+import type { AlignmentResult } from '../lib/alignment'
+import { useAlignWorker } from '../hooks/useAlignWorker'
 
 // ---------------------------------------------------------------------------
 // URL params: ?gene=PIK3CA&txs=ENST1,NM1&labels=MSKCC37,ClinRef
@@ -33,15 +35,24 @@ function pctBg(pct: number | null): string {
 // ---------------------------------------------------------------------------
 const ROW_WIDTH = 60
 
-function AlignmentView({ seq1, seq2, label1, label2 }: {
-  seq1: string; seq2: string; label1: string; label2: string
+function AlignmentView({ seq1, seq2, label1, label2, forceRun }: {
+  seq1: string; seq2: string; label1: string; label2: string; forceRun: boolean
 }) {
+  // Hooks must be called unconditionally — check for missing seqs after.
+  const { result, status, isLong, run } = useAlignWorker(seq1, seq2)
+
+  // When "Compute All Pairwise" is clicked (forceRun=true), auto-trigger this
+  // pair's alignment too. Also re-fires if the selected pair changes while
+  // forceRun is already set.
+  useEffect(() => {
+    if (forceRun && isLong && seq1 && seq2) run()
+  }, [forceRun, seq1, seq2, isLong, run])
+
   if (!seq1 || !seq2) {
     return <p className="text-gray-400 text-sm">Sequence not available for one or both transcripts.</p>
   }
 
-  const result = useMemo(() => align(seq1, seq2), [seq1, seq2])
-  const blocks = useMemo(() => buildDiffBlocks(result.seq1Aligned, result.seq2Aligned), [result])
+  const blocks = result ? buildDiffBlocks(result.seq1Aligned, result.seq2Aligned) : []
 
   const subs = blocks.filter(b => b.type === 'sub').length
   const ins  = blocks.filter(b => b.type === 'ins').length
@@ -49,16 +60,17 @@ function AlignmentView({ seq1, seq2, label1, label2 }: {
 
   // Build rows of ROW_WIDTH aligned columns
   const rows: Array<{ a1: string[]; a2: string[]; startPos1: number; startPos2: number }> = []
-  const n = result.seq1Aligned.length
-  let pos1 = 0, pos2 = 0
-
-  for (let start = 0; start < n; start += ROW_WIDTH) {
-    const chunk1 = result.seq1Aligned.slice(start, start + ROW_WIDTH).split('')
-    const chunk2 = result.seq2Aligned.slice(start, start + ROW_WIDTH).split('')
-    rows.push({ a1: chunk1, a2: chunk2, startPos1: pos1 + 1, startPos2: pos2 + 1 })
-    for (let i = start; i < Math.min(start + ROW_WIDTH, n); i++) {
-      if (result.seq1Aligned[i] !== '-') pos1++
-      if (result.seq2Aligned[i] !== '-') pos2++
+  if (result) {
+    const n = result.seq1Aligned.length
+    let pos1 = 0, pos2 = 0
+    for (let start = 0; start < n; start += ROW_WIDTH) {
+      const chunk1 = result.seq1Aligned.slice(start, start + ROW_WIDTH).split('')
+      const chunk2 = result.seq2Aligned.slice(start, start + ROW_WIDTH).split('')
+      rows.push({ a1: chunk1, a2: chunk2, startPos1: pos1 + 1, startPos2: pos2 + 1 })
+      for (let i = start; i < Math.min(start + ROW_WIDTH, n); i++) {
+        if (result.seq1Aligned[i] !== '-') pos1++
+        if (result.seq2Aligned[i] !== '-') pos2++
+      }
     }
   }
 
@@ -71,72 +83,91 @@ function AlignmentView({ seq1, seq2, label1, label2 }: {
 
   return (
     <div>
-      {/* Summary */}
-      <div className="flex gap-4 mb-3 text-xs text-gray-600">
-        <span className="font-medium">{result.pct.toFixed(2)}% identity</span>
-        <span>{result.diffCount} positions differ</span>
-        {subs > 0 && <span className="text-amber-600">{subs} substitution{subs !== 1 ? 's' : ''}</span>}
-        {ins  > 0 && <span className="text-green-600">{ins} insertion{ins !== 1 ? 's' : ''}</span>}
-        {dels > 0 && <span className="text-red-600">{dels} deletion{dels !== 1 ? 's' : ''}</span>}
-      </div>
+      {status === 'running' && (
+        <div className="mb-4 flex items-center gap-2 text-sm text-gray-500">
+          <svg className="h-4 w-4 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+          </svg>
+          Computing alignment…
+        </div>
+      )}
 
-      {/* Alignment rows */}
-      <div className="font-mono text-xs overflow-x-auto">
-        {rows.map((row, ri) => (
-          <div key={ri} className="mb-3">
-            {/* Row 1 */}
-            <div className="flex items-baseline gap-2">
-              <span className="text-gray-400 w-32 shrink-0 truncate">{label1}</span>
-              <span className="text-gray-400 w-8 text-right">{row.startPos1}</span>
-              <span>
-                {row.a1.map((c, i) => (
-                  <span key={i} className={charColor(c, row.a2[i], 1)}>{c}</span>
-                ))}
-              </span>
-            </div>
-            {/* Row 2 */}
-            <div className="flex items-baseline gap-2">
-              <span className="text-gray-400 w-32 shrink-0 truncate">{label2}</span>
-              <span className="text-gray-400 w-8 text-right">{row.startPos2}</span>
-              <span>
-                {row.a2.map((c, i) => (
-                  <span key={i} className={charColor(row.a1[i], c, 2)}>{c}</span>
-                ))}
-              </span>
-            </div>
+      {status === 'error' && (
+        <div className="mb-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Alignment failed. The sequences may be too large for available memory.
+          <button onClick={run} className="ml-3 underline hover:no-underline">Retry</button>
+        </div>
+      )}
+
+      {result && (
+        <>
+          {/* Summary */}
+          <div className="flex gap-4 mb-3 text-xs text-gray-600">
+            <span className="font-medium">{result.pct.toFixed(2)}% identity</span>
+            <span>{result.diffCount} positions differ</span>
+            {subs > 0 && <span className="text-amber-600">{subs} substitution{subs !== 1 ? 's' : ''}</span>}
+            {ins  > 0 && <span className="text-green-600">{ins} insertion{ins !== 1 ? 's' : ''}</span>}
+            {dels > 0 && <span className="text-red-600">{dels} deletion{dels !== 1 ? 's' : ''}</span>}
           </div>
-        ))}
-      </div>
 
-      {/* Diff table */}
-      {blocks.length > 0 && (
-        <details className="mt-4">
-          <summary className="text-xs text-blue-600 cursor-pointer hover:underline">
-            Show diff table ({blocks.length} events)
-          </summary>
-          <table className="mt-2 text-xs border-collapse w-full max-w-lg">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="text-left px-2 py-1 border text-gray-600">Pos ({label1})</th>
-                <th className="text-left px-2 py-1 border text-gray-600">Pos ({label2})</th>
-                <th className="text-left px-2 py-1 border text-gray-600">{label1}</th>
-                <th className="text-left px-2 py-1 border text-gray-600">{label2}</th>
-                <th className="text-left px-2 py-1 border text-gray-600">Type</th>
-              </tr>
-            </thead>
-            <tbody>
-              {blocks.map((b, i) => (
-                <tr key={i} className="border-b">
-                  <td className="px-2 py-1 border">{b.pos1 + 1}</td>
-                  <td className="px-2 py-1 border">{b.pos2 + 1}</td>
-                  <td className="px-2 py-1 border font-mono">{b.seq1chars || '—'}</td>
-                  <td className="px-2 py-1 border font-mono">{b.seq2chars || '—'}</td>
-                  <td className="px-2 py-1 border capitalize">{b.type}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </details>
+          {/* Alignment rows */}
+          <div className="font-mono text-xs overflow-x-auto">
+            {rows.map((row, ri) => (
+              <div key={ri} className="mb-3">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-gray-400 w-32 shrink-0 truncate">{label1}</span>
+                  <span className="text-gray-400 w-8 text-right">{row.startPos1}</span>
+                  <span>
+                    {row.a1.map((c, i) => (
+                      <span key={i} className={charColor(c, row.a2[i], 1)}>{c}</span>
+                    ))}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-gray-400 w-32 shrink-0 truncate">{label2}</span>
+                  <span className="text-gray-400 w-8 text-right">{row.startPos2}</span>
+                  <span>
+                    {row.a2.map((c, i) => (
+                      <span key={i} className={charColor(row.a1[i], c, 2)}>{c}</span>
+                    ))}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Diff table */}
+          {blocks.length > 0 && (
+            <details className="mt-4">
+              <summary className="text-xs text-blue-600 cursor-pointer hover:underline">
+                Show diff table ({blocks.length} events)
+              </summary>
+              <table className="mt-2 text-xs border-collapse w-full max-w-lg">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="text-left px-2 py-1 border text-gray-600">Pos ({label1})</th>
+                    <th className="text-left px-2 py-1 border text-gray-600">Pos ({label2})</th>
+                    <th className="text-left px-2 py-1 border text-gray-600">{label1}</th>
+                    <th className="text-left px-2 py-1 border text-gray-600">{label2}</th>
+                    <th className="text-left px-2 py-1 border text-gray-600">Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {blocks.map((b, i) => (
+                    <tr key={i} className="border-b">
+                      <td className="px-2 py-1 border">{b.pos1 + 1}</td>
+                      <td className="px-2 py-1 border">{b.pos2 + 1}</td>
+                      <td className="px-2 py-1 border font-mono">{b.seq1chars || '—'}</td>
+                      <td className="px-2 py-1 border font-mono">{b.seq2chars || '—'}</td>
+                      <td className="px-2 py-1 border capitalize">{b.type}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
+        </>
       )}
     </div>
   )
@@ -145,30 +176,116 @@ function AlignmentView({ seq1, seq2, label1, label2 }: {
 // ---------------------------------------------------------------------------
 // Heatmap
 // ---------------------------------------------------------------------------
-function Heatmap({ txIds, labels, seqIndex, onSelect }: {
+type MatrixCell = number | null | 'long'
+
+function buildInitialMatrix(
+  n: number,
+  txIds: string[],
+  seqIndex: Map<string, string>,
+): MatrixCell[][] {
+  const m: MatrixCell[][] = []
+  for (let i = 0; i < n; i++) {
+    m.push([])
+    for (let j = 0; j < n; j++) {
+      if (i === j) { m[i].push(100); continue }
+      const s1 = seqIndex.get(txIds[i]) ?? ''
+      const s2 = seqIndex.get(txIds[j]) ?? ''
+      if (!s1 || !s2) { m[i].push(null); continue }
+      if (s1.length > LONG_SEQ_THRESHOLD || s2.length > LONG_SEQ_THRESHOLD) {
+        m[i].push('long'); continue
+      }
+      m[i].push(align(s1, s2).pct)
+    }
+  }
+  return m
+}
+
+function Heatmap({ txIds, labels, seqIndex, onSelect, onRunAll }: {
   txIds: string[]
   labels: string[]
   seqIndex: Map<string, string>
   onSelect: (i: number, j: number) => void
+  onRunAll: () => void
 }) {
   const n = txIds.length
-  const matrix = useMemo(() => {
-    const m: Array<Array<number | null>> = []
-    for (let i = 0; i < n; i++) {
-      m.push([])
-      for (let j = 0; j < n; j++) {
-        if (i === j) { m[i].push(100); continue }
-        const s1 = seqIndex.get(txIds[i]) ?? ''
-        const s2 = seqIndex.get(txIds[j]) ?? ''
-        if (!s1 || !s2) { m[i].push(null); continue }
-        m[i].push(align(s1, s2).pct)
+
+  const [matrix, setMatrix] = useState<MatrixCell[][]>(() =>
+    buildInitialMatrix(n, txIds, seqIndex)
+  )
+  const [done, setDone]   = useState(0)
+  const [total, setTotal] = useState(0)
+  const workersRef = useRef<Worker[]>([])
+
+  // Terminate all workers on unmount
+  useEffect(() => () => { workersRef.current.forEach(w => w.terminate()) }, [])
+
+  const hasLong   = matrix.some(row => row.includes('long'))
+  const isRunning = total > 0 && done < total
+
+  const runAll = () => {
+    // Collect unique pairs from upper triangle only; mirror result to lower
+    const longPairs: [number, number][] = []
+    for (let i = 0; i < n; i++)
+      for (let j = i + 1; j < n; j++)
+        if (matrix[i][j] === 'long') longPairs.push([i, j])
+
+    if (longPairs.length === 0) return
+
+    onRunAll()
+    setTotal(longPairs.length)
+    setDone(0)
+    workersRef.current.forEach(w => w.terminate())
+    workersRef.current = []
+
+    for (const [i, j] of longPairs) {
+      const s1 = seqIndex.get(txIds[i]) ?? ''
+      const s2 = seqIndex.get(txIds[j]) ?? ''
+      const worker = new Worker(
+        new URL('../workers/alignWorker.ts', import.meta.url),
+        { type: 'module' },
+      )
+      workersRef.current.push(worker)
+      worker.postMessage({ seq1: s1, seq2: s2 })
+      worker.onmessage = (e: MessageEvent<AlignmentResult>) => {
+        const pct = e.data.pct
+        setMatrix(prev => {
+          const next = prev.map(row => [...row])
+          next[i][j] = pct
+          next[j][i] = pct
+          return next
+        })
+        setDone(d => d + 1)
+        worker.terminate()
+      }
+      worker.onerror = () => {
+        setDone(d => d + 1)
+        worker.terminate()
       }
     }
-    return m
-  }, [txIds, seqIndex])
+  }
 
   return (
     <div>
+      {hasLong && !isRunning && (
+        <div className="mb-3 flex items-center gap-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <span>⚠ Some pairs have sequences &gt;{LONG_SEQ_THRESHOLD} AA — similarity not yet computed.</span>
+          <button
+            onClick={runAll}
+            className="shrink-0 rounded bg-amber-700 px-3 py-1 text-xs font-medium text-white hover:bg-amber-800"
+          >
+            Compute All Pairwise
+          </button>
+        </div>
+      )}
+      {isRunning && (
+        <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
+          <svg className="h-4 w-4 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+          </svg>
+          Computing… {done} / {total} pairs done
+        </div>
+      )}
       <table className="border-collapse text-xs">
         <thead>
           <tr>
@@ -182,16 +299,28 @@ function Heatmap({ txIds, labels, seqIndex, onSelect }: {
           {matrix.map((row, i) => (
             <tr key={i}>
               <td className="px-2 py-1 text-gray-600 font-medium text-right">{labels[i]}</td>
-              {row.map((pct, j) => (
-                <td
-                  key={j}
-                  className={`px-3 py-2 text-center cursor-pointer border ${pctBg(pct)} ${i === j ? 'opacity-50' : 'hover:ring-2 hover:ring-blue-300'}`}
-                  onClick={() => i !== j && onSelect(i, j)}
-                  title={`${labels[i]} vs ${labels[j]}: ${pct !== null ? pct.toFixed(2) + '%' : 'N/A'}`}
-                >
-                  {pct !== null ? (pct === 100 ? '100%' : `${pct.toFixed(2)}%`) : 'N/A'}
-                </td>
-              ))}
+              {row.map((cell, j) => {
+                const isLongCell = cell === 'long'
+                const pct = (cell === 'long' || cell === null) ? null : cell
+                return (
+                  <td
+                    key={j}
+                    className={`px-3 py-2 text-center cursor-pointer border ${isLongCell ? 'bg-amber-50 text-amber-600' : pctBg(pct)} ${i === j ? 'opacity-50' : 'hover:ring-2 hover:ring-blue-300'}`}
+                    onClick={() => i !== j && onSelect(i, j)}
+                    title={
+                      i === j ? labels[i] :
+                      isLongCell ? `${labels[i]} vs ${labels[j]}: sequences >${LONG_SEQ_THRESHOLD} AA — click "Compute All Pairwise" above` :
+                      `${labels[i]} vs ${labels[j]}: ${pct !== null ? pct.toFixed(2) + '%' : 'N/A'}`
+                    }
+                  >
+                    {i === j
+                      ? '100%'
+                      : isLongCell
+                        ? '—'
+                        : pct !== null ? (pct === 100 ? '100%' : `${pct.toFixed(2)}%`) : 'N/A'}
+                  </td>
+                )
+              })}
             </tr>
           ))}
         </tbody>
@@ -207,6 +336,7 @@ export default function ProteinComparePage() {
   const { gene, txs, labels } = useMemo(parseParams, [])
   const { data, loading, error } = useGeneData()
   const [selected, setSelected] = useState<[number, number]>([0, Math.min(1, txs.length - 1)])
+  const [forceRun, setForceRun] = useState(false)
 
   const seqIndex = useMemo(() => {
     const m = new Map<string, string>()
@@ -247,11 +377,14 @@ export default function ProteinComparePage() {
         <div className="flex flex-wrap gap-2">
           {txs.map((tx, idx) => {
             const seq = seqIndex.get(tx)
+            const isLong = seq && seq.length > LONG_SEQ_THRESHOLD
             return (
               <span key={idx} className="inline-flex flex-col text-xs border rounded px-2 py-1 bg-white">
                 <span className="font-medium text-blue-700">{labels[idx]}</span>
                 <span className="font-mono text-gray-500">{tx}</span>
-                <span className="text-gray-400">{seq ? `${seq.length} aa` : 'no sequence'}</span>
+                <span className={isLong ? 'text-amber-600 font-medium' : 'text-gray-400'}>
+                  {seq ? `${seq.length.toLocaleString()} AA${isLong ? ' ⚠' : ''}` : 'no sequence'}
+                </span>
               </span>
             )
           })}
@@ -267,6 +400,7 @@ export default function ProteinComparePage() {
           labels={labels}
           seqIndex={seqIndex}
           onSelect={(a, b) => setSelected([a, b])}
+          onRunAll={() => setForceRun(true)}
         />
       </div>
 
@@ -276,14 +410,15 @@ export default function ProteinComparePage() {
           Alignment: <span className="text-blue-600">{labels[i]}</span> vs <span className="text-blue-600">{labels[j]}</span>
         </h2>
         <div className="text-xs text-gray-400 mb-3 font-mono">
-          <div>{txs[i]}</div>
-          <div>{txs[j]}</div>
+          <div>{txs[i]} ({seq1.length.toLocaleString()} AA)</div>
+          <div>{txs[j]} ({seq2.length.toLocaleString()} AA)</div>
         </div>
         <AlignmentView
           seq1={seq1}
           seq2={seq2}
           label1={labels[i]}
           label2={labels[j]}
+          forceRun={forceRun}
         />
       </div>
     </div>
