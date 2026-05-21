@@ -5,7 +5,7 @@ import {
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useSearchParams } from 'react-router-dom'
-import type { GeneEntry, GeneData, Similarities } from '../lib/types'
+import type { GeneEntry, GeneData, Similarities, SimilarityResult } from '../lib/types'
 import { computeSimilarity } from '../lib/similarity'
 import { LONG_SEQ_THRESHOLD } from '../lib/alignment'
 import SimilarityBadge from './SimilarityBadge'
@@ -112,41 +112,6 @@ function parseCols(param: string | null): ActiveCol[] {
   })
 }
 
-// Map every (A, B) dropdown pair to a precomputed Similarities key (both directions).
-const PRECOMPUTED_SIM_KEY: Record<string, keyof Similarities> = {
-  // original 6 pairs
-  '37ENST|37RefSeq':         'grch37_enst_vs_grch37_refseq',
-  '37RefSeq|37ENST':         'grch37_enst_vs_grch37_refseq',
-  '38ENST|38RefSeq':         'grch38_enst_vs_grch38_refseq',
-  '38RefSeq|38ENST':         'grch38_enst_vs_grch38_refseq',
-  '37ENST|38ENST':           'grch37_enst_vs_grch38_enst',
-  '38ENST|37ENST':           'grch37_enst_vs_grch38_enst',
-  '37ENST|38MANE(ENST)':     'grch37_enst_vs_mane',
-  '38MANE(ENST)|37ENST':     'grch37_enst_vs_mane',
-  '38ENST|38MANE(ENST)':     'grch38_enst_vs_mane',
-  '38MANE(ENST)|38ENST':     'grch38_enst_vs_mane',
-  '37RefSeq|38MANE(ENST)':   'grch37_nm_vs_mane',
-  '38MANE(ENST)|37RefSeq':   'grch37_nm_vs_mane',
-  // new 9 pairs
-  '37ENST|38RefSeq':         'grch37_enst_vs_grch38_refseq',
-  '38RefSeq|37ENST':         'grch37_enst_vs_grch38_refseq',
-  '37ENST|38MANE(RefSeq)':   'grch37_enst_vs_mane_nm',
-  '38MANE(RefSeq)|37ENST':   'grch37_enst_vs_mane_nm',
-  '38ENST|37RefSeq':         'grch38_enst_vs_grch37_refseq',
-  '37RefSeq|38ENST':         'grch38_enst_vs_grch37_refseq',
-  '38ENST|38MANE(RefSeq)':   'grch38_enst_vs_mane_nm',
-  '38MANE(RefSeq)|38ENST':   'grch38_enst_vs_mane_nm',
-  '37RefSeq|38RefSeq':       'grch37_refseq_vs_grch38_refseq',
-  '38RefSeq|37RefSeq':       'grch37_refseq_vs_grch38_refseq',
-  '37RefSeq|38MANE(RefSeq)': 'grch37_refseq_vs_mane_nm',
-  '38MANE(RefSeq)|37RefSeq': 'grch37_refseq_vs_mane_nm',
-  '38RefSeq|38MANE(ENST)':   'grch38_refseq_vs_mane',
-  '38MANE(ENST)|38RefSeq':   'grch38_refseq_vs_mane',
-  '38RefSeq|38MANE(RefSeq)': 'grch38_refseq_vs_mane_nm',
-  '38MANE(RefSeq)|38RefSeq': 'grch38_refseq_vs_mane_nm',
-  '38MANE(ENST)|38MANE(RefSeq)': 'mane_vs_mane_nm',
-  '38MANE(RefSeq)|38MANE(ENST)': 'mane_vs_mane_nm',
-}
 
 function getCompareId(option: CompareOption, rs: RowState, gene: GeneEntry): string {
   switch (option) {
@@ -247,24 +212,17 @@ export default function TranscriptTable({ data, genes, sorting, onSortingChange 
     })
   }, [])
 
-  // Precompute similarities for all compare columns so sorting is O(1) per comparison.
-  // Uses precomputed gene.similarities when the pair matches a known key to avoid expensive LCS.
+  // Compute similarities once per column for both sorting and cell display.
   const simMaps = useMemo(() => {
-    const maps: Record<string, Map<string, number>> = {}
+    const maps: Record<string, Map<string, SimilarityResult | null>> = {}
     for (const col of activeCols) {
-      const preKey = PRECOMPUTED_SIM_KEY[`${col.a}|${col.b}`]
-      const map = new Map<string, number>()
+      const map = new Map<string, SimilarityResult | null>()
       for (const gene of genes) {
         const rs = getRowState(gene)
-        const preSim = preKey ? rs.similarities[preKey] : undefined
-        if (preSim !== undefined) {
-          map.set(gene.gene_symbol, preSim.pct ?? -1)
-        } else {
-          const idA = getCompareId(col.a, rs, gene)
-          const idB = getCompareId(col.b, rs, gene)
-          if (!idA || !idB) { map.set(gene.gene_symbol, -1); continue }
-          map.set(gene.gene_symbol, computeSimilarity(getSeq(idA, gene), getSeq(idB, gene)).pct ?? -1)
-        }
+        const idA = getCompareId(col.a, rs, gene)
+        const idB = getCompareId(col.b, rs, gene)
+        if (!idA || !idB) { map.set(gene.gene_symbol, null); continue }
+        map.set(gene.gene_symbol, computeSimilarity(getSeq(idA, gene), getSeq(idB, gene)))
       }
       maps[col.id] = map
     }
@@ -421,20 +379,16 @@ export default function TranscriptTable({ data, genes, sorting, onSortingChange 
             </select>
           </div>
         ),
-        accessorFn: (row: GeneEntry) => simMap?.get(row.gene_symbol) ?? -1,
+        accessorFn: (row: GeneEntry) => simMap?.get(row.gene_symbol)?.pct ?? -1,
         sortingFn: simSortingFn,
         cell: ({ row }) => {
           const rs = getRowState(row.original)
-          const preKey = PRECOMPUTED_SIM_KEY[`${col.a}|${col.b}`]
-          const preSim = preKey ? rs.similarities[preKey] : undefined
           const idA = getCompareId(col.a, rs, row.original)
           const idB = getCompareId(col.b, rs, row.original)
           const seqA = idA ? getSeq(idA, row.original) : ''
           const seqB = idB ? getSeq(idB, row.original) : ''
           const isLong = seqA.length > LONG_SEQ_THRESHOLD || seqB.length > LONG_SEQ_THRESHOLD
-          const sim = preSim !== undefined
-            ? preSim
-            : (idA && idB ? computeSimilarity(seqA, seqB) : null)
+          const sim = simMap?.get(row.original.gene_symbol) ?? null
           if (!sim) return <span className="text-gray-300">—</span>
           return (
             <div className="flex items-center gap-1">
@@ -539,13 +493,9 @@ export default function TranscriptTable({ data, genes, sorting, onSortingChange 
       ]
 
       for (const col of activeCols) {
-        const preKey = PRECOMPUTED_SIM_KEY[`${col.a}|${col.b}`]
-        const preSim = preKey ? rs.similarities[preKey] : undefined
         const idA = getCompareId(col.a, rs, gene)
         const idB = getCompareId(col.b, rs, gene)
-        const sim = preSim !== undefined
-          ? preSim
-          : (idA && idB ? computeSimilarity(getSeq(idA, gene), getSeq(idB, gene)) : null)
+        const sim = idA && idB ? computeSimilarity(getSeq(idA, gene), getSeq(idB, gene)) : null
 
         const score = !sim ? '' : sim.pct === null ? 'N/A' : `${sim.pct}%`
         const link = (idA && idB)

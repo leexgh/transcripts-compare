@@ -22,7 +22,7 @@ export interface AlignmentResult {
 
 const GAP_OPEN = -10
 
-export const LONG_SEQ_THRESHOLD = 2000
+export const LONG_SEQ_THRESHOLD = 2500
 
 export function align(seq1: string, seq2: string): AlignmentResult {
   const n = seq1.length

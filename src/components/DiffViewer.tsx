@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import type { GeneData } from '../lib/types'
 import { buildDiffBlocks, LONG_SEQ_THRESHOLD } from '../lib/alignment'
 import { useAlignWorker } from '../hooks/useAlignWorker'
+import { computeSimilarity } from '../lib/similarity'
 
 const CHARS_PER_ROW = 60
 
@@ -70,6 +71,7 @@ export default function DiffViewer({ data, seq1: propSeq1, seq2: propSeq2, name1
   const name2 = propName2 ?? id2
 
   const { result, status, isLong, run } = useAlignWorker(seq1, seq2)
+  const sim = useMemo(() => computeSimilarity(seq1, seq2), [seq1, seq2])
 
   const blocks = useMemo(() => {
     if (!result) return []
@@ -103,9 +105,9 @@ export default function DiffViewer({ data, seq1: propSeq1, seq2: propSeq2, name1
       <div className="mb-4">
         <h2 className="text-lg font-semibold">
           {name1} <span className="text-gray-400">vs</span> {name2}
-          {result && (
+          {sim.pct !== null && (
             <span className="ml-3 text-base font-normal text-gray-600">
-              — {result.pct.toFixed(2)}% identical ({result.diffCount} difference{result.diffCount !== 1 ? 's' : ''})
+              — {sim.pct.toFixed(2)}% similarity ({sim.diff_count} difference{sim.diff_count !== 1 ? 's' : ''})
             </span>
           )}
         </h2>

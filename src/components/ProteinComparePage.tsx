@@ -1,8 +1,9 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react'
 import { useGeneData } from '../hooks/useGeneData'
-import { align, buildDiffBlocks, LONG_SEQ_THRESHOLD } from '../lib/alignment'
+import { buildDiffBlocks, LONG_SEQ_THRESHOLD } from '../lib/alignment'
 import type { AlignmentResult } from '../lib/alignment'
 import { useAlignWorker } from '../hooks/useAlignWorker'
+import { computeSimilarity } from '../lib/similarity'
 
 // ---------------------------------------------------------------------------
 // URL params: ?gene=PIK3CA&txs=ENST1,NM1&labels=MSKCC37,ClinRef
@@ -40,6 +41,7 @@ function AlignmentView({ seq1, seq2, label1, label2, forceRun }: {
 }) {
   // Hooks must be called unconditionally — check for missing seqs after.
   const { result, status, isLong, run } = useAlignWorker(seq1, seq2)
+  const sim = useMemo(() => computeSimilarity(seq1, seq2), [seq1, seq2])
 
   // When "Compute All Pairwise" is clicked (forceRun=true), auto-trigger this
   // pair's alignment too. Also re-fires if the selected pair changes while
@@ -104,8 +106,8 @@ function AlignmentView({ seq1, seq2, label1, label2, forceRun }: {
         <>
           {/* Summary */}
           <div className="flex gap-4 mb-3 text-xs text-gray-600">
-            <span className="font-medium">{result.pct.toFixed(2)}% identity</span>
-            <span>{result.diffCount} positions differ</span>
+            <span className="font-medium">{sim.pct !== null ? sim.pct.toFixed(2) : result.pct.toFixed(2)}% similarity</span>
+            <span>{sim.pct !== null ? sim.diff_count : result.diffCount} differences</span>
             {subs > 0 && <span className="text-amber-600">{subs} substitution{subs !== 1 ? 's' : ''}</span>}
             {ins  > 0 && <span className="text-green-600">{ins} insertion{ins !== 1 ? 's' : ''}</span>}
             {dels > 0 && <span className="text-red-600">{dels} deletion{dels !== 1 ? 's' : ''}</span>}
@@ -194,7 +196,7 @@ function buildInitialMatrix(
       if (s1.length > LONG_SEQ_THRESHOLD || s2.length > LONG_SEQ_THRESHOLD) {
         m[i].push('long'); continue
       }
-      m[i].push(align(s1, s2).pct)
+      m[i].push(computeSimilarity(s1, s2).pct)
     }
   }
   return m

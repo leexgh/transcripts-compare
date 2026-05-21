@@ -19,7 +19,6 @@ import os
 import sys
 import gzip
 import json
-import difflib
 import datetime
 from collections import defaultdict
 from typing import Dict, Set, Optional, Tuple, List
@@ -546,18 +545,30 @@ def parse_hgnc(path: str) -> Tuple[Dict[str, Dict], Dict[str, str], Dict[str, st
     return hgnc_map, alias_map, prev_map
 
 # ---------------------------------------------------------------------------
-# Similarity
+# Similarity — true LCS, formula matches TypeScript computeSimilarity:
+#   pct = round(2 * lcs_len / (len1 + len2) * 10000) / 100
+#   diff_count = len1 + len2 - 2 * lcs_len
 # ---------------------------------------------------------------------------
+def _lcs_len(a: str, b: str) -> int:
+    m, n = len(a), len(b)
+    prev = [0] * (n + 1)
+    for i in range(1, m + 1):
+        curr = [0] * (n + 1)
+        for j in range(1, n + 1):
+            if a[i - 1] == b[j - 1]:
+                curr[j] = prev[j - 1] + 1
+            else:
+                curr[j] = max(prev[j], curr[j - 1])
+        prev = curr
+    return prev[n]
+
 def compute_similarity(seq1: str, seq2: str) -> Dict:
     if not seq1 or not seq2:
         return {"pct": None, "diff_count": 0}
-    sm = difflib.SequenceMatcher(None, seq1, seq2, autojunk=False)
-    pct = round(sm.ratio() * 100, 4)
-    diff_count = sum(
-        max(i2 - i1, j2 - j1)
-        for tag, i1, i2, j1, j2 in sm.get_opcodes()
-        if tag != "equal"
-    )
+    lcs = _lcs_len(seq1, seq2)
+    total = len(seq1) + len(seq2)
+    pct = round(2 * lcs / total * 10000) / 100
+    diff_count = total - 2 * lcs
     return {"pct": pct, "diff_count": diff_count}
 
 # ---------------------------------------------------------------------------
